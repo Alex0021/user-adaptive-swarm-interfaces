@@ -1,7 +1,7 @@
 sm_metadata: dict[str, int] = {
     "stream_ready": 1,
     "calibration_ok": 1,
-    "active_data_cnt": 4
+    "active_data_cnt": 1
 } 
 """
 Metadata fields byte sizes present in the shared memory with Unity.
