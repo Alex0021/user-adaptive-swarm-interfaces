@@ -8,14 +8,15 @@ dependencies = [
     "scikit-learn",
     "pandas",
     "matplotlib",
-    "numpy"
+    "numpy",
+    "debugpy"
 ]
 
 [dependency-groups]
 dev = [
     "pytest",
     "black",
-    "mypy"
+    "mypy",
 ]
 
 [project.scripts]
