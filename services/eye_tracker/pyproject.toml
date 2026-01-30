@@ -31,6 +31,8 @@ line_length = 88
 
 [tool.mypy]
 python_version = "3.10"
+exclude = ["external/"]
+disable_error_code = ["import-untyped"]
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
