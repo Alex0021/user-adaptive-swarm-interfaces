@@ -1,0 +1,4 @@
+
+[submodule "services/eye_tracker/external"]
+	path = services/eye_tracker/external
+	url = https://github.com/tobiipro/prosdk-addons-python.git

@@ -1,0 +1,15 @@
+services:
+  workload_models:
+    container_name: workload_models_service
+    build:
+      context: ./services/workload_models
+      dockerfile: dockerfile
+    volumes:
+      - ./services/workload_models:/app
+    ports:
+      - 5555:5555
+      - 5678:5678
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDEBUG=1
+      - IS_DOCKER=1

@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eye-tracker"
+version = "0.1.0"
+description = "Eye tracker data stream and calibration for Tobii fusion pro device"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "tobii_research",
+    "tobii_research_addons @ file://${PROJECT_ROOT}/external",
+    "numpy",
+    "pyzmq"
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "black",
+    "mypy",
+    "ruff"
+]
+
+[project.scripts]
+eye_tracker = "eye_tracker.main:main"
+
+[tool.black]
+line_length = 88
+
+[tool.mypy]
+python_version = "3.10"
+exclude = ["external/"]
+disable_error_code = ["import-untyped"]
+
+[tool.ruff]
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+]
+line-length = 88
+indent-width = 4
+target-version = "py313"

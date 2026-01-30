@@ -6,7 +6,7 @@ __pycache__/
 # Virtual environments
 venv/
 env/
-.env
+**/.venv
 
 # IDE
 .vscode/
@@ -25,3 +25,5 @@ Thumbs.db
 htmlcov/
 
 build/
+
+local/
