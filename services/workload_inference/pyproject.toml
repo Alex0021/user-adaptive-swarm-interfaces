@@ -10,7 +10,8 @@ dependencies = [
     "matplotlib",
     "numpy",
     "debugpy",
-    "PyYaml"
+    "PyYaml",
+    "PyQt6"
 ]
 
 [dependency-groups]
