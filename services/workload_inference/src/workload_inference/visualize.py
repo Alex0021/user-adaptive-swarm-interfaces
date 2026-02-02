@@ -11,7 +11,7 @@ from workload_inference.data_structures import GazeData
 class GazeDataCanvas(FigureCanvas):
     """Matplotlib canvas with 3 subplots for gaze visualization"""
 
-    def __init__(self, parent=None, screen_width=1920, screen_height=1200, max_history=1000, plotting_window=100, update_freq=10):
+    def __init__(self, parent=None, screen_width=1920, screen_height=1200, max_history=1000, plotting_window=100, update_freq=30):
         self.fig = Figure(figsize=(8, 6), dpi=100, tight_layout=True)
         super().__init__(self.fig)
         self.parent = parent
@@ -40,7 +40,7 @@ class GazeDataCanvas(FigureCanvas):
         # Create a circle trace of gaze points counter clockwise starting from top
         for i in range(plotting_window):
             angle = 2 * np.pi * (i / plotting_window)
-            x = (self.screen_width / 2) - (self.screen_width / 4) * np.sin(angle)
+            x = (self.screen_width / 2) + (self.screen_width / 4) * np.sin(angle)
             y = (self.screen_height / 2) - (self.screen_height / 4) * np.cos(angle)
             self.gaze_hist.append((x, y))
 
@@ -49,10 +49,19 @@ class GazeDataCanvas(FigureCanvas):
         self.validity_img = None
         self.gaze_scatter = None
 
+        # Blitting state
+        self._background = None
+        self._blit_ready = False
+
         self._init_plots()
         self.update_pupil_diameter()
         self.update_eye_validity()
         self.update_gaze_trace()
+
+        # Blitting hooks
+        self.mpl_connect("draw_event", self._on_draw)
+        self.mpl_connect("resize_event", self._on_resize)
+        self._init_blit()
 
     def _init_plots(self):
         """Initialize plot styling and labels"""
@@ -67,7 +76,7 @@ class GazeDataCanvas(FigureCanvas):
         # Eye validity bar
         self.ax_validity.set_title("Eye Validity History")
         self.ax_validity.set_yticks([0, 1])
-        self.ax_validity.set_yticklabels(["left", "right"])
+        self.ax_validity.set_yticklabels(["right", "left"])
         self.ax_validity.set_xlabel("Sample Index")
         self.ax_validity.set_xlim(-self.window_size, 0)
         
@@ -79,6 +88,50 @@ class GazeDataCanvas(FigureCanvas):
         self.ax_pupil.set_xlim(-self.window_size, 0)
         self.ax_pupil.set_ylim(2, 5)
 
+    def _init_blit(self):
+        """Initialize blitting by caching the background"""
+        if self.pupil_hist_lines:
+            for line in self.pupil_hist_lines:
+                line.set_animated(True)
+        if self.validity_img is not None:
+            self.validity_img.set_animated(True)
+        if self.gaze_scatter is not None:
+            self.gaze_scatter.set_animated(True)
+
+        self.draw()
+        self._background = self.copy_from_bbox(self.fig.bbox)
+        self._blit_ready = True
+
+    def _on_draw(self, _event):
+        """Cache background on draw events"""
+        self._background = self.copy_from_bbox(self.fig.bbox)
+        self._blit_ready = True
+
+    def _on_resize(self, _event):
+        """Reinitialize blitting on resize"""
+        self._blit_ready = False
+        self.draw()
+
+    def blit_update(self):
+        """Fast redraw using blitting"""
+        if not self._blit_ready or self._background is None:
+            self.draw_idle()
+            return
+
+        self.restore_region(self._background)
+
+        if self.pupil_hist_lines:
+            for line in self.pupil_hist_lines:
+                self.ax_pupil.draw_artist(line)
+
+        if self.validity_img is not None:
+            self.ax_validity.draw_artist(self.validity_img)
+
+        if self.gaze_scatter is not None:
+            self.ax_gaze.draw_artist(self.gaze_scatter)
+
+        self.blit(self.fig.bbox)
+
     def _update_all(self):
         """Update all plots"""
         self.update_gaze_trace()
@@ -89,7 +142,7 @@ class GazeDataCanvas(FigureCanvas):
         """Update line plot for pupil diameter trends"""
         pupil_data = np.array(self.pupil_hist)
         if self.pupil_hist_lines is None:
-            indices = np.arange(0, -len(pupil_data), -1)
+            indices = np.arange(-len(pupil_data), 0)
             self.pupil_hist_lines = self.ax_pupil.plot(indices, pupil_data[:, 0], label="Left", color='blue')
             self.pupil_hist_lines += self.ax_pupil.plot(indices, pupil_data[:, 1], label="Right", color='orange')
             mean_diameter = np.mean(pupil_data, axis=1)
@@ -124,20 +177,20 @@ class GazeDataCanvas(FigureCanvas):
     def update_gaze_trace(self):
         """
         Update scatter plot for gaze position trace
-        Use a scatter plot with fading single color and size decrease to indicate recency
+        Only recalculate sizes/colors for NEW points
         """
         gaze_data = np.array(self.gaze_hist)
-        sizes = np.linspace(50, 5, len(gaze_data)) # Size decrease
-        colors = np.linspace(1.0, 0.1, len(gaze_data))  # Fading effect
+        
         if self.gaze_scatter is None:
+            # Initial creation only
+            sizes = np.linspace(5, 50, len(gaze_data))
+            colors = np.linspace(0.1, 1.0, len(gaze_data))
             self.gaze_scatter = self.ax_gaze.scatter(
                 gaze_data[:, 0], gaze_data[:, 1],
                 s=sizes, c=colors, cmap='Greys', alpha=0.7
             )
         else:
             self.gaze_scatter.set_offsets(gaze_data)
-            self.gaze_scatter.set_sizes(sizes)
-            self.gaze_scatter.set_array(colors)
                 
 
     def datas_callback(self, gaze_datas: GazeData):
@@ -171,4 +224,4 @@ class GazeVisualizerWindow(QMainWindow):
     def _update(self):
         """Update the canvas plots"""
         self.canvas._update_all()
-        self.canvas.draw_idle()
+        self.canvas.blit_update()
