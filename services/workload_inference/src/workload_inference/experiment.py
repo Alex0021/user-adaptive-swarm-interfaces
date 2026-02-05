@@ -8,6 +8,7 @@ from typing import TextIO
 import logging
 
 CONFIG_FILE_NAME = "experiment.yaml"
+SAMPLE_CONFIG_FILE_NAME = "sample_experiment.yaml"
 DATA_FILE_NAME = "gaze_data.csv"
 CSV_HEADER = GazeData.__annotations__.keys()
 
@@ -22,9 +23,16 @@ class ExperimentManager:
         self.data_queue: Queue[GazeData] = Queue(maxsize=queue_size)
         # Try to read experiment data from yaml file
         if not (self.base_folder / CONFIG_FILE_NAME).exists():
-            raise FileNotFoundError(f"Experiment configuration file '{CONFIG_FILE_NAME}' not found in '{self.base_folder}'.")
-        with open(self.base_folder / CONFIG_FILE_NAME, 'r') as f:
-            self.experiment_config = yaml.safe_load(f)
+            logger.warning(f"Experiment configuration file '{CONFIG_FILE_NAME}' not found in '{self.base_folder}'."
+                           f" Using sample configuration '{SAMPLE_CONFIG_FILE_NAME}'.")
+            if not (self.base_folder / SAMPLE_CONFIG_FILE_NAME).exists():
+                raise FileNotFoundError(f"Sample experiment configuration file '{SAMPLE_CONFIG_FILE_NAME}' not found"
+                                        f" in '{self.base_folder}'. Please create an experiment configuration file.")
+            with open(self.base_folder / SAMPLE_CONFIG_FILE_NAME, 'r') as f:
+                self.experiment_config = yaml.safe_load(f)
+        else:
+            with open(self.base_folder / CONFIG_FILE_NAME, 'r') as f:
+                self.experiment_config = yaml.safe_load(f)
         self._writer_thread: threading.Thread | None = None
         self._running: bool = False
         self._lock: threading.Lock = threading.Lock()

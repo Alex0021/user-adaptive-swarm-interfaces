@@ -27,3 +27,5 @@ htmlcov/
 build/
 data/
 local/
+
+datasets/

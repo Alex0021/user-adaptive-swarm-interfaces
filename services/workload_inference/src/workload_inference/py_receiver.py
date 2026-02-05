@@ -1,7 +1,8 @@
+import struct
 from workload_inference.utilities import ConsoleManager
 import threading
 import mmap
-from typing import Any
+from typing import Any, Protocol, TypeVar
 import workload_inference.data_structures as dts
 import time
 import numpy as np
@@ -9,11 +10,17 @@ import logging
 import zmq
 from typing import Callable
 
-METADATA_BLOCK_NAME = "TobiiUnityMetadata2"
-GAZE_DATA_BLOCK_NAME = "TobiiUnityGazeData2"
-GAZE_DATA_BLOCK_CNT = 100
+# Type aliases
+class DataclassLike(Protocol):
+    @staticmethod
+    def size() -> int: ...
+    @staticmethod
+    def from_buffer(data: bytes) -> "DataclassLike": ...
+    @staticmethod
+    def from_dict(data: dict[str, Any]) -> "DataclassLike": ...
 
-type Listener = Callable[[list[dts.GazeData]], None]
+TDataclass = TypeVar('TDataclass', bound=DataclassLike) # Used to keep track of the original type of the dataclass
+Listener = Callable[[list[DataclassLike]], None]
 
 class PyReceiverBase:
     """
@@ -27,7 +34,7 @@ class PyReceiverBase:
         self._ready: bool = False
 
         self._listeners: list[Listener] = []
-        """Listeners for gaze data updates. Each listener is a callable function that takes a list of GazeData instances as an argument."""
+        """Listeners for data updates. Each listener is a callable function that takes a list of Dataclass instances as an argument."""
         
         self._monitor: Monitor = Monitor()
         self._console: ConsoleManager = ConsoleManager()
@@ -40,12 +47,12 @@ class PyReceiverBase:
     def stop(self) -> None:
         raise NotImplementedError()
 
-    def register_listener(self, listener: Callable[[list[dts.GazeData]], None]) -> None:
+    def register_listener(self, listener: Listener) -> None:
         """
-        Register a listener to receive gaze data updates.
+        Register a listener to receive data updates.
 
         Args:
-            listener (Callable[[list[dts.GazeData]], None]): A callable to receive a list of GazeData instances.
+            listener (Listener): A callable to receive a list of Dataclass instances.
         """
         with self._lock:
             self._listeners.append(listener)
@@ -68,25 +75,122 @@ class PyReceiverBase:
 
 class SMReceiver(PyReceiverBase):
     """
-    Shared Memory Receiver for Gaze Data.
+    Shared Memory Receiver for Unity Data.
     """
 
-    def __init__(self):
+    def __init__(self, mmap_name: str, datatype: type[TDataclass], update_rate: int, block_count: int = 1, listeners: list[Listener] = [], with_console: bool = False):
         super().__init__()
-        self._metadata_block: mmap.mmap | None = None
-        self._gaze_data_block: mmap.mmap | None = None
-        self._gaze_data_ptr: int = 0
+        self._data_block = self.acquire_shm(mmap_name, datatype.size() * block_count + 8, access=mmap.ACCESS_READ)
+        self._block_cnt = block_count
+        self._datatype = datatype
+        self._update_rate = update_rate
+        self._data_timestamp: float = 0.0
+        self._listeners = listeners
         self._logger.info("SMReceiver initialized.")
+        self._with_console = with_console
+
+        self._last_timestamp: float = 0.0
 
     def start(self) -> None:
+        # Acquire shared memory block
+        if self._data_block is None:
+            raise RuntimeError("Shared memory block is not initialized.")
+
+        if self._with_console:
+            self._console.start()
+        # Start main thread
+        if self._thread is None:
+            self._running = True
+            self._thread = threading.Thread(target=self._run)
+            self._thread.start()
+
+    def stop(self) -> None:
+        if self._thread is not None:
+            self._running = False
+            self._thread.join()
+            self._thread = None
+    
+    def _run(self) -> None:
+        self._monitor.start()
+
+        while self._running:
+            if time.time() - self._last_timestamp >= 1.0 / self._update_rate:
+                datas = self.read_data_blocks()
+                self._last_timestamp = time.time()
+                # Notify listeners
+                with self._lock:
+                    for listener in self._listeners:
+                        listener(datas)
+                # Update monitor
+                self._monitor.update(len(datas))
+            else:
+                time.sleep(1.0 / (self._update_rate * 10))  # Sleep a bit to avoid busy waiting
+            if self._with_console:
+                self._console.print(f"Data Rate: {self._monitor.get_data_rate():.1f} Hz"
+                                f" | Avg Data Count: {self._monitor.get_avg_data_cnt():.1f}"
+                                f" | Total: {self._monitor.get_total_packets()}     ", use_spinner=True)
+            
+        self._monitor.reset()
+    
+    def acquire_shm(self, block_name: str, block_size: int, access: int = mmap.ACCESS_DEFAULT) -> mmap.mmap:
+        """
+        Acquire a shared memory block by its name.
+
+        Args:
+            block_name (str): The name of the shared memory block.
+            block_size (int): The size of the shared memory block.
+
+        Returns:
+            mmap.mmap: The acquired shared memory block.
+        """
+        shm = mmap.mmap(-1, block_size, tagname=block_name, access=access)
+        self._logger.info("Shared memory block (%s) acquired.", block_name)
+        return shm
+    
+    def read_data_blocks(self) -> list[TDataclass]:
+        """
+        Read the data block(s) from shared memory.
+
+        Returns:
+            List[TDataclass]: A list of instances of the dataclass containing the fields and their values.
+        """
+        assert self._data_block is not None, "Data block is not initialized."
+        datas: list[TDataclass] = []
+        self._data_block.seek(0)  # Seek to the beginning to read the timestamp
+        self._data_timestamp = struct.unpack('<d', self._data_block.read(8))[0]  # Read the timestamp (double, 8 bytes)
+        self._data_block.seek(8)  # Seek to the beginning of the data block
+        data = self._data_block.read(self._datatype.size() * self._block_cnt)
+        for i in range(self._block_cnt):
+            block_data = data[i * self._datatype.size():(i + 1) * self._datatype.size()]
+            datas.append(self._datatype.from_buffer(block_data))
+        return datas
+
+
+class SMReceiverCircularBuffer(PyReceiverBase):
+    """
+    Shared Memory Receiver for Unity Data using a circular buffer.
+    """
+
+    def __init__(
+            self, 
+            data_mmap_name: str, 
+            metadata_mmap_name: str, 
+            datatype: type[TDataclass], 
+            buffer_size: int, 
+            listeners: list[Listener] = []):
+        super().__init__()
         # Acquire shared memory blocks
-        self._metadata_block = self.acquire_shm(METADATA_BLOCK_NAME, dts.Metadata.size(), access=mmap.ACCESS_WRITE)
-        self._gaze_data_block = self.acquire_shm(GAZE_DATA_BLOCK_NAME, dts.GazeData.size() * GAZE_DATA_BLOCK_CNT, access=mmap.ACCESS_READ)
+        self._metadata_block = self.acquire_shm(metadata_mmap_name, dts.Metadata.size(), access=mmap.ACCESS_WRITE)
+        self._data_block = self.acquire_shm(data_mmap_name, datatype.size() * buffer_size, access=mmap.ACCESS_READ)
+        self._buffer_size = buffer_size
+        self._datatype = datatype
+        self._listeners = listeners
+        self._data_ptr: int = 0
+        self._logger.info("SMReceiverCircularBuffer initialized.")
 
-        if self._metadata_block is None or self._gaze_data_block is None:
+    def start(self) -> None:
+        if self._metadata_block is None or self._data_block is None:
             raise RuntimeError("Failed to acquire shared memory blocks.")
-
-        self._logger.info("Metadata (%s) and Gaze Data (%s) blocks acquired.", METADATA_BLOCK_NAME, GAZE_DATA_BLOCK_NAME)
 
         self._console.start()
         # Start main thread
@@ -125,7 +229,7 @@ class SMReceiver(PyReceiverBase):
         while self._running:
             metadata = self.read_metadata_block()
             if metadata.active_data_cnt > 0:
-                gaze_datas = self.read_gaze_data_blocks(int(metadata.active_data_cnt))
+                gaze_datas = self.read_data_blocks(int(metadata.active_data_cnt))
                 # Notify listeners
                 with self._lock:
                     for listener in self._listeners:
@@ -168,30 +272,30 @@ class SMReceiver(PyReceiverBase):
         data = self._metadata_block.read(dts.Metadata.size())
         return dts.Metadata.from_buffer(data)
     
-    def read_gaze_data_blocks(self, count: int = 1) -> list[dts.GazeData]:
+    def read_data_blocks(self, count: int = 1) -> list[TDataclass]:
         """
         Read gaze data blocks from shared memory.
 
         Returns:
-            list[dts.GazeData]: A list of GazeData dataclass instances containing the gaze data fields and their values.
+            list[TDataclass]: A list of dataclass instances containing the gaze data fields and their values.
         """
-        gaze_datas: list[dts.GazeData] = []
-        block_size = dts.GazeData.size()
+        datas: list[TDataclass] = []
+        block_size = self._datatype.size()
 
-        assert self._gaze_data_block is not None, "Gaze data block is not initialized."
+        assert self._data_block is not None, "Gaze data block is not initialized."
 
         for _ in range(count):
-            self._gaze_data_block.seek(self._gaze_data_ptr)
-            data = self._gaze_data_block.read(block_size)
-            gaze_data = dts.GazeData.from_buffer(data)
-            gaze_datas.append(gaze_data)
+            self._data_block.seek(self._data_ptr)
+            data = self._data_block.read(block_size)
+            gaze_data = self._datatype.from_buffer(data)
+            datas.append(gaze_data)
 
-            self._gaze_data_ptr += block_size
+            self._data_ptr += block_size
             # Check for circular buffer wrap-around
-            if self._gaze_data_ptr >= GAZE_DATA_BLOCK_CNT * block_size:
-                self._gaze_data_ptr = 0
+            if self._data_ptr >= block_size * self._buffer_size:
+                self._data_ptr = 0
 
-        return gaze_datas
+        return datas
     
     def write_metadata_cnt(self, metadata: dts.Metadata) -> None:
         """
@@ -209,8 +313,9 @@ class ZMQReceiver(PyReceiverBase):
     """
     SOCKET_SUB_FILTER = ""
 
-    def __init__(self, address: str = "tcp://localhost:5555"):
+    def __init__(self, datatype: TDataclass, address: str = "tcp://localhost:5555"):
         super().__init__()
+        self._datatype = datatype
         self._context = zmq.Context()
         self._socket = self._context.socket(zmq.SUB)
         self._socket.setsockopt_string(zmq.SUBSCRIBE, self.SOCKET_SUB_FILTER)
@@ -236,14 +341,14 @@ class ZMQReceiver(PyReceiverBase):
         while self._running:
             try:
                 message = self._socket.recv_json(flags=zmq.NOBLOCK)
-                gaze_data = dts.GazeData.from_dict(message)
+                gaze_data = self._datatype.from_dict(message)
                 # Notify listeners
                 with self._lock:
                     for listener in self._listeners:
                         listener([gaze_data])
                 # Update monitor
                 self._monitor.update(1)
-                self._console.print(f"Gaze Data Rate: {self._monitor.get_data_rate():.1f} Hz"
+                self._console.print(f"Data Rate: {self._monitor.get_data_rate():.1f} Hz"
                                     f" | Avg Data Count: {self._monitor.get_avg_data_cnt():.1f}"
                                     f" | Total: {self._monitor.get_total_packets()}     ", use_spinner=True)
                 # self.pretty_print_gaze_data(gaze_data)  # Print the latest gaze data

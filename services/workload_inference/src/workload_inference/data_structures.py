@@ -1,6 +1,16 @@
 from dataclasses import dataclass
 import numpy as np
 
+# Block names
+METADATA_BLOCK_NAME = "TobiiUnityMetadata"
+GAZE_DATA_BLOCK_NAME = "TobiiUnityGazeData"
+NBACK_DATA_BLOCK_NAME = "ExperimentUnityNBackData"
+DRONE_DATA_BLOCK_NAME = "ExperimentUnityDroneData"
+
+# Blcok counts for circular buffer
+GAZE_DATA_BLOCK_CNT = 100
+NBACK_SEQUENCE_LEN = 10
+
 @dataclass 
 class Metadata:
     stream_ready: np.uint8
@@ -24,6 +34,52 @@ class Metadata:
             calibration_ok = np.frombuffer(buffer[1:2], dtype=np.uint8)[0],
             active_data_cnt = np.frombuffer(buffer[2:3], dtype=np.uint8)[0],
         )
+
+@dataclass
+class NBackData:
+    timestamp: np.int64
+    response_timestamp: np.int64
+    nback_level: np.int8
+    stimulus: np.int8
+    participant_response: np.int8
+    is_correct: np.int8
+
+    def get_conversion_str(self) -> str:
+        return '<2q4B'
+
+    def __len__(self) -> int:
+        return self.size()
+
+    @classmethod
+    def size(cls) -> int:
+        return 8 + 8 + 1 + 1 + 1 + 1
+
+    @classmethod
+    def from_buffer(cls, buffer: bytes) -> "NBackData":
+        if len(buffer) < cls.size():
+            raise ValueError(f"Buffer size {len(buffer)} is smaller than expected size {cls.size()}.")
+        return NBackData(
+            timestamp = np.frombuffer(buffer[0:8], dtype=np.int64)[0],
+            response_timestamp = np.frombuffer(buffer[8:16], dtype=np.int64)[0],
+            nback_level = np.frombuffer(buffer[16:17], dtype=np.int8)[0],
+            stimulus = np.frombuffer(buffer[17:18], dtype=np.int8)[0],
+            participant_response = np.frombuffer(buffer[18:19], dtype=np.int8)[0],
+            is_correct = np.frombuffer(buffer[19:20], dtype=np.int8)[0],
+        )
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "NBackData":
+        try:
+            return NBackData(
+                timestamp = np.int64(data['timestamp']),
+                response_timestamp = np.int64(data['response_timestamp']),
+                nback_level = np.int8(data['nback_level']),
+                stimulus = np.int8(data['stimulus']),
+                participant_response = np.int8(data['participant_response']),
+                is_correct = np.int8(data['is_correct']),
+            )
+        except KeyError as e:
+            raise ValueError(f"Missing key in data dictionary: {e}")
 
 @dataclass
 class GazeData:
