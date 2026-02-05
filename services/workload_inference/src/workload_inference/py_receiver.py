@@ -19,7 +19,6 @@ class DataclassLike(Protocol):
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "DataclassLike": ...
 
-TDataclass = TypeVar('TDataclass', bound=DataclassLike) # Used to keep track of the original type of the dataclass
 Listener = Callable[[list[DataclassLike]], None]
 
 class PyReceiverBase:
@@ -78,7 +77,7 @@ class SMReceiver(PyReceiverBase):
     Shared Memory Receiver for Unity Data.
     """
 
-    def __init__(self, mmap_name: str, datatype: type[TDataclass], update_rate: int, block_count: int = 1, listeners: list[Listener] = [], with_console: bool = False):
+    def __init__(self, mmap_name: str, datatype: type[DataclassLike], update_rate: int, block_count: int = 1, listeners: list[Listener] = [], with_console: bool = False):
         super().__init__()
         self._data_block = self.acquire_shm(mmap_name, datatype.size() * block_count + 8, access=mmap.ACCESS_READ)
         self._block_cnt = block_count
@@ -115,7 +114,7 @@ class SMReceiver(PyReceiverBase):
 
         while self._running:
             if time.time() - self._last_timestamp >= 1.0 / self._update_rate:
-                datas = self.read_data_blocks()
+                datas: list[DataclassLike] = self.read_data_blocks()
                 self._last_timestamp = time.time()
                 # Notify listeners
                 with self._lock:
@@ -147,15 +146,15 @@ class SMReceiver(PyReceiverBase):
         self._logger.info("Shared memory block (%s) acquired.", block_name)
         return shm
     
-    def read_data_blocks(self) -> list[TDataclass]:
+    def read_data_blocks(self) -> list[DataclassLike]:
         """
         Read the data block(s) from shared memory.
 
         Returns:
-            List[TDataclass]: A list of instances of the dataclass containing the fields and their values.
+            List[DataclassLike]: A list of instances of the dataclass containing the fields and their values.
         """
         assert self._data_block is not None, "Data block is not initialized."
-        datas: list[TDataclass] = []
+        datas: list[DataclassLike] = []
         self._data_block.seek(0)  # Seek to the beginning to read the timestamp
         self._data_timestamp = struct.unpack('<d', self._data_block.read(8))[0]  # Read the timestamp (double, 8 bytes)
         self._data_block.seek(8)  # Seek to the beginning of the data block
@@ -175,7 +174,7 @@ class SMReceiverCircularBuffer(PyReceiverBase):
             self, 
             data_mmap_name: str, 
             metadata_mmap_name: str, 
-            datatype: type[TDataclass], 
+            datatype: type[DataclassLike], 
             buffer_size: int, 
             listeners: list[Listener] = []):
         super().__init__()
@@ -272,14 +271,14 @@ class SMReceiverCircularBuffer(PyReceiverBase):
         data = self._metadata_block.read(dts.Metadata.size())
         return dts.Metadata.from_buffer(data)
     
-    def read_data_blocks(self, count: int = 1) -> list[TDataclass]:
+    def read_data_blocks(self, count: int = 1) -> list[DataclassLike]:
         """
         Read gaze data blocks from shared memory.
 
         Returns:
-            list[TDataclass]: A list of dataclass instances containing the gaze data fields and their values.
+            list[DataclassLike]: A list of dataclass instances containing the gaze data fields and their values.
         """
-        datas: list[TDataclass] = []
+        datas: list[DataclassLike] = []
         block_size = self._datatype.size()
 
         assert self._data_block is not None, "Gaze data block is not initialized."
@@ -313,7 +312,7 @@ class ZMQReceiver(PyReceiverBase):
     """
     SOCKET_SUB_FILTER = ""
 
-    def __init__(self, datatype: TDataclass, address: str = "tcp://localhost:5555"):
+    def __init__(self, datatype: DataclassLike, address: str = "tcp://localhost:5555"):
         super().__init__()
         self._datatype = datatype
         self._context = zmq.Context()
@@ -341,6 +340,9 @@ class ZMQReceiver(PyReceiverBase):
         while self._running:
             try:
                 message = self._socket.recv_json(flags=zmq.NOBLOCK)
+                if not isinstance(message, dict):
+                    self._logger.warning("Received message is not a dictionary.")
+                    continue
                 gaze_data = self._datatype.from_dict(message)
                 # Notify listeners
                 with self._lock:

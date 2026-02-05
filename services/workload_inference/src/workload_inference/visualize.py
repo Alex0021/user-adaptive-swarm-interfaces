@@ -1,4 +1,5 @@
 import time
+from typing import List
 from PyQt6.QtWidgets import QMainWindow
 from PyQt6.QtCore import QTimer
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -193,16 +194,16 @@ class GazeDataCanvas(FigureCanvas):
             self.gaze_scatter.set_offsets(gaze_data)
                 
 
-    def datas_callback(self, gaze_datas: GazeData):
+    def datas_callback(self, gaze_datas: List[GazeData]):
         """Callback to only store gaze data (minimal processing)"""
         for gaze_data in gaze_datas:
             self.data_cb_cnt += 1
             x = gaze_data.left_point_screen_x * self.screen_width
             y = gaze_data.left_point_screen_y * self.screen_height
-            left_validity = gaze_data.left_validity
-            right_validity = gaze_data.right_validity
-            left_diameter = gaze_data.left_pupil_diameter
-            right_diameter = gaze_data.right_pupil_diameter
+            left_validity = int(gaze_data.left_validity)
+            right_validity = int(gaze_data.right_validity)
+            left_diameter = float(gaze_data.left_pupil_diameter)
+            right_diameter = float(gaze_data.right_pupil_diameter)
 
             self.gaze_hist.append((x, y))
             self.validity_hist.append((left_validity, right_validity))
