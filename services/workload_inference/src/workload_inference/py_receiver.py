@@ -1,14 +1,16 @@
-import struct
-from workload_inference.utilities import ConsoleManager
-import threading
-import mmap
-from typing import Any, Protocol, TypeVar
-import workload_inference.data_structures as dts
-import time
-import numpy as np
 import logging
+import mmap
+import struct
+import threading
+import time
+from typing import Any, Callable, Protocol, TypeVar
+
+import numpy as np
 import zmq
-from typing import Callable
+
+import workload_inference.data_structures as dts
+from workload_inference.utilities import ConsoleManager
+
 
 # Type aliases
 class DataclassLike(Protocol):
@@ -19,7 +21,9 @@ class DataclassLike(Protocol):
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "DataclassLike": ...
 
+
 Listener = Callable[[list[DataclassLike]], None]
+
 
 class PyReceiverBase:
     """
@@ -34,12 +38,12 @@ class PyReceiverBase:
 
         self._listeners: list[Listener] = []
         """Listeners for data updates. Each listener is a callable function that takes a list of Dataclass instances as an argument."""
-        
+
         self._monitor: Monitor = Monitor()
         self._console: ConsoleManager = ConsoleManager()
 
         self._logger = logging.getLogger("PyReceiverBase")
-    
+
     def start(self) -> None:
         raise NotImplementedError()
 
@@ -55,7 +59,7 @@ class PyReceiverBase:
         """
         with self._lock:
             self._listeners.append(listener)
-        
+
     def clear_listeners(self) -> None:
         """
         Clear all registered listeners.
@@ -67,7 +71,7 @@ class PyReceiverBase:
         """
         Pretty print the gaze data.
         """
-        print('\r--------------' + ' '*20)
+        print("\r--------------" + " " * 20)
         for key, value in gaze_data.__dict__.items():
             print(f"  {key}: {value}")
 
@@ -77,9 +81,19 @@ class SMReceiver(PyReceiverBase):
     Shared Memory Receiver for Unity Data.
     """
 
-    def __init__(self, mmap_name: str, datatype: type[DataclassLike], update_rate: int, block_count: int = 1, listeners: list[Listener] = [], with_console: bool = False):
+    def __init__(
+        self,
+        mmap_name: str,
+        datatype: type[DataclassLike],
+        update_rate: int,
+        block_count: int = 1,
+        listeners: list[Listener] = [],
+        with_console: bool = False,
+    ):
         super().__init__()
-        self._data_block = self.acquire_shm(mmap_name, datatype.size() * block_count + 8, access=mmap.ACCESS_READ)
+        self._data_block = self.acquire_shm(
+            mmap_name, datatype.size() * block_count + 8, access=mmap.ACCESS_READ
+        )
         self._block_cnt = block_count
         self._datatype = datatype
         self._update_rate = update_rate
@@ -108,7 +122,7 @@ class SMReceiver(PyReceiverBase):
             self._running = False
             self._thread.join()
             self._thread = None
-    
+
     def _run(self) -> None:
         self._monitor.start()
 
@@ -123,15 +137,22 @@ class SMReceiver(PyReceiverBase):
                 # Update monitor
                 self._monitor.update(len(datas))
             else:
-                time.sleep(1.0 / (self._update_rate * 10))  # Sleep a bit to avoid busy waiting
+                time.sleep(
+                    1.0 / (self._update_rate * 10)
+                )  # Sleep a bit to avoid busy waiting
             if self._with_console:
-                self._console.print(f"Data Rate: {self._monitor.get_data_rate():.1f} Hz"
-                                f" | Avg Data Count: {self._monitor.get_avg_data_cnt():.1f}"
-                                f" | Total: {self._monitor.get_total_packets()}     ", use_spinner=True)
-            
+                self._console.print(
+                    f"Data Rate: {self._monitor.get_data_rate():.1f} Hz"
+                    f" | Avg Data Count: {self._monitor.get_avg_data_cnt():.1f}"
+                    f" | Total: {self._monitor.get_total_packets()}     ",
+                    use_spinner=True,
+                )
+
         self._monitor.reset()
-    
-    def acquire_shm(self, block_name: str, block_size: int, access: int = mmap.ACCESS_DEFAULT) -> mmap.mmap:
+
+    def acquire_shm(
+        self, block_name: str, block_size: int, access: int = mmap.ACCESS_DEFAULT
+    ) -> mmap.mmap:
         """
         Acquire a shared memory block by its name.
 
@@ -145,7 +166,7 @@ class SMReceiver(PyReceiverBase):
         shm = mmap.mmap(-1, block_size, tagname=block_name, access=access)
         self._logger.info("Shared memory block (%s) acquired.", block_name)
         return shm
-    
+
     def read_data_blocks(self) -> list[DataclassLike]:
         """
         Read the data block(s) from shared memory.
@@ -156,11 +177,15 @@ class SMReceiver(PyReceiverBase):
         assert self._data_block is not None, "Data block is not initialized."
         datas: list[DataclassLike] = []
         self._data_block.seek(0)  # Seek to the beginning to read the timestamp
-        self._data_timestamp = struct.unpack('<d', self._data_block.read(8))[0]  # Read the timestamp (double, 8 bytes)
+        self._data_timestamp = struct.unpack("<d", self._data_block.read(8))[
+            0
+        ]  # Read the timestamp (double, 8 bytes)
         self._data_block.seek(8)  # Seek to the beginning of the data block
         data = self._data_block.read(self._datatype.size() * self._block_cnt)
         for i in range(self._block_cnt):
-            block_data = data[i * self._datatype.size():(i + 1) * self._datatype.size()]
+            block_data = data[
+                i * self._datatype.size() : (i + 1) * self._datatype.size()
+            ]
             datas.append(self._datatype.from_buffer(block_data))
         return datas
 
@@ -171,16 +196,21 @@ class SMReceiverCircularBuffer(PyReceiverBase):
     """
 
     def __init__(
-            self, 
-            data_mmap_name: str, 
-            metadata_mmap_name: str, 
-            datatype: type[DataclassLike], 
-            buffer_size: int, 
-            listeners: list[Listener] = []):
+        self,
+        data_mmap_name: str,
+        metadata_mmap_name: str,
+        datatype: type[DataclassLike],
+        buffer_size: int,
+        listeners: list[Listener] = [],
+    ):
         super().__init__()
         # Acquire shared memory blocks
-        self._metadata_block = self.acquire_shm(metadata_mmap_name, dts.Metadata.size(), access=mmap.ACCESS_WRITE)
-        self._data_block = self.acquire_shm(data_mmap_name, datatype.size() * buffer_size, access=mmap.ACCESS_READ)
+        self._metadata_block = self.acquire_shm(
+            metadata_mmap_name, dts.Metadata.size(), access=mmap.ACCESS_WRITE
+        )
+        self._data_block = self.acquire_shm(
+            data_mmap_name, datatype.size() * buffer_size, access=mmap.ACCESS_READ
+        )
         self._buffer_size = buffer_size
         self._datatype = datatype
         self._listeners = listeners
@@ -203,15 +233,17 @@ class SMReceiverCircularBuffer(PyReceiverBase):
             self._running = False
             self._thread.join()
             self._thread = None
-    
+
     def _run(self) -> None:
         while self._running:
             # Check the stream_ready flag in metadata
             metadata = self.read_metadata_block()
-            self._ready = (metadata.stream_ready == 1)
+            self._ready = metadata.stream_ready == 1
 
             if not self._ready:
-                self._console.print("Waiting for stream to be ready...", use_spinner=True)
+                self._console.print(
+                    "Waiting for stream to be ready...", use_spinner=True
+                )
                 time.sleep(0.1)
                 continue
 
@@ -238,14 +270,19 @@ class SMReceiverCircularBuffer(PyReceiverBase):
                 # reset cnt
                 metadata.active_data_cnt = np.uint8(0)
                 self.write_metadata_cnt(metadata)
-                self._console.print(f"Gaze Data Rate: {self._monitor.get_data_rate():.1f} Hz"
-                                    f" | Avg Data Count: {self._monitor.get_avg_data_cnt():.1f}"
-                                    f" | Total: {self._monitor.get_total_packets()}     ", use_spinner=True)
+                self._console.print(
+                    f"Gaze Data Rate: {self._monitor.get_data_rate():.1f} Hz"
+                    f" | Avg Data Count: {self._monitor.get_avg_data_cnt():.1f}"
+                    f" | Total: {self._monitor.get_total_packets()}     ",
+                    use_spinner=True,
+                )
                 # self.pretty_print_gaze_data(gaze_datas[-1])  # Print the latest gaze data
 
         self._monitor.reset()
-    
-    def acquire_shm(self, block_name: str, block_size: int, access: int = mmap.ACCESS_DEFAULT) -> mmap.mmap:
+
+    def acquire_shm(
+        self, block_name: str, block_size: int, access: int = mmap.ACCESS_DEFAULT
+    ) -> mmap.mmap:
         """
         Acquire a shared memory block by its name.
 
@@ -258,7 +295,7 @@ class SMReceiverCircularBuffer(PyReceiverBase):
         """
         shm = mmap.mmap(-1, block_size, tagname=block_name, access=access)
         return shm
-    
+
     def read_metadata_block(self) -> dts.Metadata:
         """
         Read the metadata block from shared memory.
@@ -270,7 +307,7 @@ class SMReceiverCircularBuffer(PyReceiverBase):
         self._metadata_block.seek(0)
         data = self._metadata_block.read(dts.Metadata.size())
         return dts.Metadata.from_buffer(data)
-    
+
     def read_data_blocks(self, count: int = 1) -> list[DataclassLike]:
         """
         Read gaze data blocks from shared memory.
@@ -295,7 +332,7 @@ class SMReceiverCircularBuffer(PyReceiverBase):
                 self._data_ptr = 0
 
         return datas
-    
+
     def write_metadata_cnt(self, metadata: dts.Metadata) -> None:
         """
         Write the updated active_data_cnt back to the metadata block.
@@ -310,6 +347,7 @@ class ZMQReceiver(PyReceiverBase):
     """
     ZeroMQ Receiver for Gaze Data using pub/sub socket architecture.
     """
+
     SOCKET_SUB_FILTER = ""
 
     def __init__(self, datatype: DataclassLike, address: str = "tcp://localhost:5555"):
@@ -327,7 +365,10 @@ class ZMQReceiver(PyReceiverBase):
             self._thread = threading.Thread(target=self._run)
             self._thread.start()
             self._monitor.start()
-            self._logger.info("ZMQReceiver started and connected to %s", self._socket.getsockopt_string(zmq.LAST_ENDPOINT))
+            self._logger.info(
+                "ZMQReceiver started and connected to %s",
+                self._socket.getsockopt_string(zmq.LAST_ENDPOINT),
+            )
 
     def stop(self) -> None:
         if self._thread is not None:
@@ -350,13 +391,17 @@ class ZMQReceiver(PyReceiverBase):
                         listener([gaze_data])
                 # Update monitor
                 self._monitor.update(1)
-                self._console.print(f"Data Rate: {self._monitor.get_data_rate():.1f} Hz"
-                                    f" | Avg Data Count: {self._monitor.get_avg_data_cnt():.1f}"
-                                    f" | Total: {self._monitor.get_total_packets()}     ", use_spinner=True)
+                self._console.print(
+                    f"Data Rate: {self._monitor.get_data_rate():.1f} Hz"
+                    f" | Avg Data Count: {self._monitor.get_avg_data_cnt():.1f}"
+                    f" | Total: {self._monitor.get_total_packets()}     ",
+                    use_spinner=True,
+                )
                 # self.pretty_print_gaze_data(gaze_data)  # Print the latest gaze data
             except zmq.Again:
                 time.sleep(0.01)  # No message received, wait a bit
-    
+
+
 class Monitor:
     def __init__(self):
         self._last_timestamp: float = 0.0
@@ -375,7 +420,9 @@ class Monitor:
         self.total_packets += packets_received
         if time.time() - self._last_timestamp >= 1.0:
             self._data_rate = self._data_cnt / (time.time() - self._last_timestamp)
-            self._data_cnt_avg = self._data_cnt / self._update_cnt if self._update_cnt > 0 else 0.0
+            self._data_cnt_avg = (
+                self._data_cnt / self._update_cnt if self._update_cnt > 0 else 0.0
+            )
             self._data_cnt = 0
             self._update_cnt = 0
             self._last_timestamp = time.time()

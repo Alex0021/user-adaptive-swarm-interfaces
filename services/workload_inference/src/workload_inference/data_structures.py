@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+
 import numpy as np
 
 # Block names
@@ -12,14 +13,15 @@ GAZE_DATA_BLOCK_CNT = 100
 NBACK_SEQUENCE_LEN = 10
 DRONE_COUNT = 9
 
-@dataclass 
+
+@dataclass
 class Metadata:
     stream_ready: np.uint8
     calibration_ok: np.uint8
     active_data_cnt: np.uint8
 
     def get_conversion_str(self) -> str:
-        return 'BBB'
+        return "BBB"
 
     def __len__(self) -> int:
         return self.size()
@@ -27,14 +29,15 @@ class Metadata:
     @classmethod
     def size(cls) -> int:
         return 1 + 1 + 1
-    
+
     @classmethod
     def from_buffer(cls, buffer: bytes) -> "Metadata":
         return Metadata(
-            stream_ready = np.frombuffer(buffer[0:1], dtype=np.uint8)[0],
-            calibration_ok = np.frombuffer(buffer[1:2], dtype=np.uint8)[0],
-            active_data_cnt = np.frombuffer(buffer[2:3], dtype=np.uint8)[0],
+            stream_ready=np.frombuffer(buffer[0:1], dtype=np.uint8)[0],
+            calibration_ok=np.frombuffer(buffer[1:2], dtype=np.uint8)[0],
+            active_data_cnt=np.frombuffer(buffer[2:3], dtype=np.uint8)[0],
         )
+
 
 @dataclass
 class NBackData:
@@ -46,7 +49,7 @@ class NBackData:
     is_correct: np.int8
 
     def get_conversion_str(self) -> str:
-        return '<2q4B'
+        return "<2q4B"
 
     def __len__(self) -> int:
         return self.size()
@@ -58,29 +61,32 @@ class NBackData:
     @classmethod
     def from_buffer(cls, buffer: bytes) -> "NBackData":
         if len(buffer) < cls.size():
-            raise ValueError(f"Buffer size {len(buffer)} is smaller than expected size {cls.size()}.")
+            raise ValueError(
+                f"Buffer size {len(buffer)} is smaller than expected size {cls.size()}."
+            )
         return NBackData(
-            timestamp = np.frombuffer(buffer[0:8], dtype=np.int64)[0],
-            response_timestamp = np.frombuffer(buffer[8:16], dtype=np.int64)[0],
-            nback_level = np.frombuffer(buffer[16:17], dtype=np.int8)[0],
-            stimulus = np.frombuffer(buffer[17:18], dtype=np.int8)[0],
-            participant_response = np.frombuffer(buffer[18:19], dtype=np.int8)[0],
-            is_correct = np.frombuffer(buffer[19:20], dtype=np.int8)[0],
+            timestamp=np.frombuffer(buffer[0:8], dtype=np.int64)[0],
+            response_timestamp=np.frombuffer(buffer[8:16], dtype=np.int64)[0],
+            nback_level=np.frombuffer(buffer[16:17], dtype=np.int8)[0],
+            stimulus=np.frombuffer(buffer[17:18], dtype=np.int8)[0],
+            participant_response=np.frombuffer(buffer[18:19], dtype=np.int8)[0],
+            is_correct=np.frombuffer(buffer[19:20], dtype=np.int8)[0],
         )
 
     @classmethod
     def from_dict(cls, data: dict) -> "NBackData":
         try:
             return NBackData(
-                timestamp = np.int64(data['timestamp']),
-                response_timestamp = np.int64(data['response_timestamp']),
-                nback_level = np.int8(data['nback_level']),
-                stimulus = np.int8(data['stimulus']),
-                participant_response = np.int8(data['participant_response']),
-                is_correct = np.int8(data['is_correct']),
+                timestamp=np.int64(data["timestamp"]),
+                response_timestamp=np.int64(data["response_timestamp"]),
+                nback_level=np.int8(data["nback_level"]),
+                stimulus=np.int8(data["stimulus"]),
+                participant_response=np.int8(data["participant_response"]),
+                is_correct=np.int8(data["is_correct"]),
             )
         except KeyError as e:
             raise ValueError(f"Missing key in data dictionary: {e}")
+
 
 @dataclass
 class DroneData:
@@ -101,59 +107,62 @@ class DroneData:
     acceleration_z: np.float32
 
     def get_conversion_str(self) -> str:
-        return '<q3f3f3f3f3f3f'
-    
+        return "<q3f3f3f3f3f3f"
+
     def __len__(self) -> int:
         return self.size()
-    
+
     @classmethod
     def size(cls) -> int:
-        return 3*4 + 3*4 + 3*4 + 3*4 + 3*4
-    
+        return 3 * 4 + 3 * 4 + 3 * 4 + 3 * 4 + 3 * 4
+
     @classmethod
     def from_buffer(cls, buffer: bytes) -> "DroneData":
         if len(buffer) < cls.size():
-            raise ValueError(f"Buffer size {len(buffer)} is smaller than expected size {cls.size()}.")
+            raise ValueError(
+                f"Buffer size {len(buffer)} is smaller than expected size {cls.size()}."
+            )
         return DroneData(
-            position_x = np.frombuffer(buffer[0:4], dtype=np.float32)[0],
-            position_y = np.frombuffer(buffer[4:8], dtype=np.float32)[0],
-            position_z = np.frombuffer(buffer[8:12], dtype=np.float32)[0],
-            orientation_x = np.frombuffer(buffer[12:16], dtype=np.float32)[0],
-            orientation_y = np.frombuffer(buffer[16:20], dtype=np.float32)[0],
-            orientation_z = np.frombuffer(buffer[20:24], dtype=np.float32)[0],
-            velocity_x = np.frombuffer(buffer[24:28], dtype=np.float32)[0],
-            velocity_y = np.frombuffer(buffer[28:32], dtype=np.float32)[0],
-            velocity_z = np.frombuffer(buffer[32:36], dtype=np.float32)[0],
-            angular_velocity_x = np.frombuffer(buffer[36:40], dtype=np.float32)[0],
-            angular_velocity_y = np.frombuffer(buffer[40:44], dtype=np.float32)[0],
-            angular_velocity_z = np.frombuffer(buffer[44:48], dtype=np.float32)[0],
-            acceleration_x = np.frombuffer(buffer[48:52], dtype=np.float32)[0],
-            acceleration_y = np.frombuffer(buffer[52:56], dtype=np.float32)[0],
-            acceleration_z = np.frombuffer(buffer[56:60], dtype=np.float32)[0],
+            position_x=np.frombuffer(buffer[0:4], dtype=np.float32)[0],
+            position_y=np.frombuffer(buffer[4:8], dtype=np.float32)[0],
+            position_z=np.frombuffer(buffer[8:12], dtype=np.float32)[0],
+            orientation_x=np.frombuffer(buffer[12:16], dtype=np.float32)[0],
+            orientation_y=np.frombuffer(buffer[16:20], dtype=np.float32)[0],
+            orientation_z=np.frombuffer(buffer[20:24], dtype=np.float32)[0],
+            velocity_x=np.frombuffer(buffer[24:28], dtype=np.float32)[0],
+            velocity_y=np.frombuffer(buffer[28:32], dtype=np.float32)[0],
+            velocity_z=np.frombuffer(buffer[32:36], dtype=np.float32)[0],
+            angular_velocity_x=np.frombuffer(buffer[36:40], dtype=np.float32)[0],
+            angular_velocity_y=np.frombuffer(buffer[40:44], dtype=np.float32)[0],
+            angular_velocity_z=np.frombuffer(buffer[44:48], dtype=np.float32)[0],
+            acceleration_x=np.frombuffer(buffer[48:52], dtype=np.float32)[0],
+            acceleration_y=np.frombuffer(buffer[52:56], dtype=np.float32)[0],
+            acceleration_z=np.frombuffer(buffer[56:60], dtype=np.float32)[0],
         )
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> "DroneData":
         try:
             return DroneData(
-                position_x = np.float32(data['position'][0]),
-                position_y = np.float32(data['position'][1]),
-                position_z = np.float32(data['position'][2]),
-                orientation_x = np.float32(data['orientation'][0]),
-                orientation_y = np.float32(data['orientation'][1]),
-                orientation_z = np.float32(data['orientation'][2]),
-                velocity_x = np.float32(data['velocity'][0]),
-                velocity_y = np.float32(data['velocity'][1]),
-                velocity_z = np.float32(data['velocity'][2]),
-                angular_velocity_x = np.float32(data['angular_velocity'][0]),
-                angular_velocity_y = np.float32(data['angular_velocity'][1]),
-                angular_velocity_z = np.float32(data['angular_velocity'][2]),
-                acceleration_x = np.float32(data['acceleration'][0]),
-                acceleration_y = np.float32(data['acceleration'][1]),
-                acceleration_z = np.float32(data['acceleration'][2]),
+                position_x=np.float32(data["position"][0]),
+                position_y=np.float32(data["position"][1]),
+                position_z=np.float32(data["position"][2]),
+                orientation_x=np.float32(data["orientation"][0]),
+                orientation_y=np.float32(data["orientation"][1]),
+                orientation_z=np.float32(data["orientation"][2]),
+                velocity_x=np.float32(data["velocity"][0]),
+                velocity_y=np.float32(data["velocity"][1]),
+                velocity_z=np.float32(data["velocity"][2]),
+                angular_velocity_x=np.float32(data["angular_velocity"][0]),
+                angular_velocity_y=np.float32(data["angular_velocity"][1]),
+                angular_velocity_z=np.float32(data["angular_velocity"][2]),
+                acceleration_x=np.float32(data["acceleration"][0]),
+                acceleration_y=np.float32(data["acceleration"][1]),
+                acceleration_z=np.float32(data["acceleration"][2]),
             )
         except KeyError as e:
             raise ValueError(f"Missing key in data dictionary: {e}")
+
 
 @dataclass
 class GazeData:
@@ -174,54 +183,74 @@ class GazeData:
     right_pupil_diameter: np.float32
 
     def get_conversion_str(self) -> str:
-        return '<q10f2B2f'
+        return "<q10f2B2f"
 
     def __len__(self) -> int:
         return self.size()
 
     @classmethod
     def size(cls) -> int:
-        return 8 + 3*4 + 3*4 + 2*4 + 2*4 + 1 + 1 + 4 + 4
+        return 8 + 3 * 4 + 3 * 4 + 2 * 4 + 2 * 4 + 1 + 1 + 4 + 4
 
     @classmethod
     def from_buffer(cls, buffer: bytes) -> "GazeData":
         return GazeData(
-            timestamp = np.frombuffer(buffer[0:8], dtype=np.int64)[0],
-            left_gaze_point_x = np.frombuffer(buffer[8:12], dtype=np.float32)[0],
-            left_gaze_point_y = np.frombuffer(buffer[12:16], dtype=np.float32)[0],
-            left_gaze_point_z = np.frombuffer(buffer[16:20], dtype=np.float32)[0],
-            right_gaze_point_x = np.frombuffer(buffer[20:24], dtype=np.float32)[0],
-            right_gaze_point_y = np.frombuffer(buffer[24:28], dtype=np.float32)[0],
-            right_gaze_point_z = np.frombuffer(buffer[28:32], dtype=np.float32)[0],
-            left_point_screen_x = np.frombuffer(buffer[32:36], dtype=np.float32)[0],
-            left_point_screen_y = np.frombuffer(buffer[36:40], dtype=np.float32)[0],
-            right_point_screen_x = np.frombuffer(buffer[40:44], dtype=np.float32)[0],
-            right_point_screen_y = np.frombuffer(buffer[44:48], dtype=np.float32)[0],
-            left_validity = np.frombuffer(buffer[48:49], dtype=np.int8)[0],
-            right_validity = np.frombuffer(buffer[49:50], dtype=np.int8)[0],
-            left_pupil_diameter = np.frombuffer(buffer[50:54], dtype=np.float32)[0],
-            right_pupil_diameter = np.frombuffer(buffer[54:58], dtype=np.float32)[0],
+            timestamp=np.frombuffer(buffer[0:8], dtype=np.int64)[0],
+            left_gaze_point_x=np.frombuffer(buffer[8:12], dtype=np.float32)[0],
+            left_gaze_point_y=np.frombuffer(buffer[12:16], dtype=np.float32)[0],
+            left_gaze_point_z=np.frombuffer(buffer[16:20], dtype=np.float32)[0],
+            right_gaze_point_x=np.frombuffer(buffer[20:24], dtype=np.float32)[0],
+            right_gaze_point_y=np.frombuffer(buffer[24:28], dtype=np.float32)[0],
+            right_gaze_point_z=np.frombuffer(buffer[28:32], dtype=np.float32)[0],
+            left_point_screen_x=np.frombuffer(buffer[32:36], dtype=np.float32)[0],
+            left_point_screen_y=np.frombuffer(buffer[36:40], dtype=np.float32)[0],
+            right_point_screen_x=np.frombuffer(buffer[40:44], dtype=np.float32)[0],
+            right_point_screen_y=np.frombuffer(buffer[44:48], dtype=np.float32)[0],
+            left_validity=np.frombuffer(buffer[48:49], dtype=np.int8)[0],
+            right_validity=np.frombuffer(buffer[49:50], dtype=np.int8)[0],
+            left_pupil_diameter=np.frombuffer(buffer[50:54], dtype=np.float32)[0],
+            right_pupil_diameter=np.frombuffer(buffer[54:58], dtype=np.float32)[0],
         )
 
     @classmethod
     def from_dict(cls, data: dict) -> "GazeData":
         try:
             return GazeData(
-                timestamp = np.int64(data['system_time_stamp']),
-                left_gaze_point_x = np.float32(data['left_gaze_origin_in_user_coordinate_system'][0]),
-                left_gaze_point_y = np.float32(data['left_gaze_origin_in_user_coordinate_system'][1]),
-                left_gaze_point_z = np.float32(data['left_gaze_origin_in_user_coordinate_system'][2]),
-                right_gaze_point_x = np.float32(data['right_gaze_origin_in_user_coordinate_system'][0]),
-                right_gaze_point_y = np.float32(data['right_gaze_origin_in_user_coordinate_system'][1]),
-                right_gaze_point_z = np.float32(data['right_gaze_origin_in_user_coordinate_system'][2]),
-                left_point_screen_x = np.float32(data['left_gaze_point_on_display_area'][0]),
-                left_point_screen_y = np.float32(data['left_gaze_point_on_display_area'][1]),
-                right_point_screen_x = np.float32(data['right_gaze_point_on_display_area'][0]),
-                right_point_screen_y = np.float32(data['right_gaze_point_on_display_area'][1]),
-                left_validity = np.int8(data['left_pupil_validity']),
-                right_validity = np.int8(data['right_pupil_validity']),
-                left_pupil_diameter = np.float32(data['left_pupil_diameter']),
-                right_pupil_diameter = np.float32(data['right_pupil_diameter']),
+                timestamp=np.int64(data["system_time_stamp"]),
+                left_gaze_point_x=np.float32(
+                    data["left_gaze_origin_in_user_coordinate_system"][0]
+                ),
+                left_gaze_point_y=np.float32(
+                    data["left_gaze_origin_in_user_coordinate_system"][1]
+                ),
+                left_gaze_point_z=np.float32(
+                    data["left_gaze_origin_in_user_coordinate_system"][2]
+                ),
+                right_gaze_point_x=np.float32(
+                    data["right_gaze_origin_in_user_coordinate_system"][0]
+                ),
+                right_gaze_point_y=np.float32(
+                    data["right_gaze_origin_in_user_coordinate_system"][1]
+                ),
+                right_gaze_point_z=np.float32(
+                    data["right_gaze_origin_in_user_coordinate_system"][2]
+                ),
+                left_point_screen_x=np.float32(
+                    data["left_gaze_point_on_display_area"][0]
+                ),
+                left_point_screen_y=np.float32(
+                    data["left_gaze_point_on_display_area"][1]
+                ),
+                right_point_screen_x=np.float32(
+                    data["right_gaze_point_on_display_area"][0]
+                ),
+                right_point_screen_y=np.float32(
+                    data["right_gaze_point_on_display_area"][1]
+                ),
+                left_validity=np.int8(data["left_pupil_validity"]),
+                right_validity=np.int8(data["right_pupil_validity"]),
+                left_pupil_diameter=np.float32(data["left_pupil_diameter"]),
+                right_pupil_diameter=np.float32(data["right_pupil_diameter"]),
             )
         except KeyError as e:
             raise ValueError(f"Missing key in data dictionary: {e}")

@@ -1,25 +1,30 @@
-import time
-import debugpy
+import logging
 import os
+import time
 
+import debugpy
 import numpy as np
-from workload_inference.py_receiver import SMReceiverCircularBuffer, ZMQReceiver, SMReceiver
 import zmq
+from PyQt6.QtWidgets import QApplication
+
+import workload_inference.data_structures as dts
 from workload_inference.experiment import ExperimentManager
 from workload_inference.processing import DataProcessor
+from workload_inference.py_receiver import (
+    SMReceiver,
+    SMReceiverCircularBuffer,
+    ZMQReceiver,
+)
 from workload_inference.visualize import GazeVisualizerWindow
-import logging
-import workload_inference.data_structures as dts
-from PyQt6.QtWidgets import QApplication
+
 
 def setup_logging():
     logging.basicConfig(
         level=logging.DEBUG,
         format="%(asctime)s [%(name)s] %(levelname)s::%(message)s",
-        handlers=[
-            logging.StreamHandler()
-        ]
+        handlers=[logging.StreamHandler()],
     )
+
 
 def main():
     app = QApplication([])
@@ -30,11 +35,13 @@ def main():
     try:
         experiment_manager = ExperimentManager()
         visualizer = GazeVisualizerWindow()
+
         # receiver = ZMQReceiver()
-        def print_drone_data(datas :list[dts.DroneData]):
+        def print_drone_data(datas: list[dts.DroneData]):
             for d in datas:
                 pos = np.array([d.position_x, d.position_y, d.position_z])
                 print(pos)
+
         receiver = SMReceiver(
             mmap_name=dts.DRONE_DATA_BLOCK_NAME,
             datatype=dts.DroneData,
@@ -78,7 +85,7 @@ def main():
     #     print("Waiting for debugger to attach...")
     #     debugpy.listen(("0.0.0.0", 5678))
     #     debugpy.wait_for_client()
-    
+
     # context = zmq.Context()
     # socket = context.socket(zmq.SUB)
     # if os.environ.get("IS_DOCKER", "0") == "1":
@@ -91,6 +98,7 @@ def main():
     #     data = socket.recv_json()
     #     print(f"Received data: {data}\n")
     #     time.sleep(0.01)
+
 
 if __name__ == "__main__":
     main()

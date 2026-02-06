@@ -1,18 +1,27 @@
-import time
+from collections import deque
 from typing import List
-from PyQt6.QtWidgets import QMainWindow
-from PyQt6.QtCore import QTimer
+
+import numpy as np
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-import numpy as np
-from collections import deque
+from PyQt6.QtCore import QTimer
+from PyQt6.QtWidgets import QMainWindow
+
 from workload_inference.data_structures import GazeData
 
 
 class GazeDataCanvas(FigureCanvas):
     """Matplotlib canvas with 3 subplots for gaze visualization"""
 
-    def __init__(self, parent=None, screen_width=1920, screen_height=1200, max_history=1000, plotting_window=100, update_freq=30):
+    def __init__(
+        self,
+        parent=None,
+        screen_width=1920,
+        screen_height=1200,
+        max_history=1000,
+        plotting_window=100,
+        update_freq=30,
+    ):
         self.fig = Figure(figsize=(8, 6), dpi=100, tight_layout=True)
         super().__init__(self.fig)
         self.parent = parent
@@ -24,19 +33,27 @@ class GazeDataCanvas(FigureCanvas):
 
         # Initalize 3 plots
         ar = self.screen_height / self.screen_width
-        self.ax_gaze = self.fig.add_subplot(3, 2, (1, 4), aspect=ar, adjustable='box')
+        self.ax_gaze = self.fig.add_subplot(3, 2, (1, 4), aspect=ar, adjustable="box")
         self.ax_validity = self.fig.add_subplot(3, 2, 5)
         self.ax_pupil = self.fig.add_subplot(3, 2, 6)
 
         # Data buffers
-        self.gaze_hist: deque[tuple[float, float]] = deque(maxlen=plotting_window)  # (x, y) positions
-        self.validity_hist: deque[tuple[int, int]] = deque(maxlen=plotting_window)  # (left_validity, right_validity)
-        self.pupil_hist: deque[tuple[float, float]] = deque(maxlen=plotting_window)  # (left_diameter, right_diameter)
+        self.gaze_hist: deque[tuple[float, float]] = deque(
+            maxlen=plotting_window
+        )  # (x, y) positions
+        self.validity_hist: deque[tuple[int, int]] = deque(
+            maxlen=plotting_window
+        )  # (left_validity, right_validity)
+        self.pupil_hist: deque[tuple[float, float]] = deque(
+            maxlen=plotting_window
+        )  # (left_diameter, right_diameter)
 
         # TEST data
         d = np.linspace(3.0, 4.0, plotting_window)
         for i in range(plotting_window):
-            self.validity_hist.append((i > plotting_window // 2, i < plotting_window // 2))
+            self.validity_hist.append(
+                (i > plotting_window // 2, i < plotting_window // 2)
+            )
             self.pupil_hist.append((d[i], np.random.rand() + 3.5))
         # Create a circle trace of gaze points counter clockwise starting from top
         for i in range(plotting_window):
@@ -73,14 +90,14 @@ class GazeDataCanvas(FigureCanvas):
         self.ax_gaze.set_xlim(0, self.screen_width)
         self.ax_gaze.set_ylim(0, self.screen_height)
         self.ax_gaze.invert_yaxis()  # Invert Y axis to match screen coordinates
-        
+
         # Eye validity bar
         self.ax_validity.set_title("Eye Validity History")
         self.ax_validity.set_yticks([0, 1])
         self.ax_validity.set_yticklabels(["right", "left"])
         self.ax_validity.set_xlabel("Sample Index")
         self.ax_validity.set_xlim(-self.window_size, 0)
-        
+
         # Pupil diameter plot
         self.ax_pupil.set_title("Pupil Diameter Trend")
         self.ax_pupil.set_xlabel("Sample Index")
@@ -144,10 +161,16 @@ class GazeDataCanvas(FigureCanvas):
         pupil_data = np.array(self.pupil_hist)
         if self.pupil_hist_lines is None:
             indices = np.arange(-len(pupil_data), 0)
-            self.pupil_hist_lines = self.ax_pupil.plot(indices, pupil_data[:, 0], label="Left", color='blue')
-            self.pupil_hist_lines += self.ax_pupil.plot(indices, pupil_data[:, 1], label="Right", color='orange')
+            self.pupil_hist_lines = self.ax_pupil.plot(
+                indices, pupil_data[:, 0], label="Left", color="blue"
+            )
+            self.pupil_hist_lines += self.ax_pupil.plot(
+                indices, pupil_data[:, 1], label="Right", color="orange"
+            )
             mean_diameter = np.mean(pupil_data, axis=1)
-            self.pupil_hist_lines += self.ax_pupil.plot(indices, mean_diameter, label="Mean", linestyle='--', color='black')
+            self.pupil_hist_lines += self.ax_pupil.plot(
+                indices, mean_diameter, label="Mean", linestyle="--", color="black"
+            )
             self.ax_pupil.legend()
         else:
             for i, line in enumerate(self.pupil_hist_lines):
@@ -166,14 +189,14 @@ class GazeDataCanvas(FigureCanvas):
         if self.validity_img is None:
             self.validity_img = self.ax_validity.imshow(
                 validity_data,
-                aspect='auto',
-                cmap='RdYlGn',
-                vmin=0, vmax=1,
-                extent=[-self.window_size, 0, -0.5, 1.5]
+                aspect="auto",
+                cmap="RdYlGn",
+                vmin=0,
+                vmax=1,
+                extent=[-self.window_size, 0, -0.5, 1.5],
             )
         else:
             self.validity_img.set_data(validity_data)
-
 
     def update_gaze_trace(self):
         """
@@ -181,18 +204,21 @@ class GazeDataCanvas(FigureCanvas):
         Only recalculate sizes/colors for NEW points
         """
         gaze_data = np.array(self.gaze_hist)
-        
+
         if self.gaze_scatter is None:
             # Initial creation only
             sizes = np.linspace(5, 50, len(gaze_data))
             colors = np.linspace(0.1, 1.0, len(gaze_data))
             self.gaze_scatter = self.ax_gaze.scatter(
-                gaze_data[:, 0], gaze_data[:, 1],
-                s=sizes, c=colors, cmap='Greys', alpha=0.7
+                gaze_data[:, 0],
+                gaze_data[:, 1],
+                s=sizes,
+                c=colors,
+                cmap="Greys",
+                alpha=0.7,
             )
         else:
             self.gaze_scatter.set_offsets(gaze_data)
-                
 
     def datas_callback(self, gaze_datas: List[GazeData]):
         """Callback to only store gaze data (minimal processing)"""
@@ -208,19 +234,20 @@ class GazeDataCanvas(FigureCanvas):
             self.gaze_hist.append((x, y))
             self.validity_hist.append((left_validity, right_validity))
             self.pupil_hist.append((left_diameter, right_diameter))
-        
+
 
 class GazeVisualizerWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Gaze Visualizer")
-        self.setGeometry(100, 100, 800, 600)      
-        self.canvas = GazeDataCanvas(screen_width=1920, screen_height=1200, plotting_window=200)
+        self.setGeometry(100, 100, 800, 600)
+        self.canvas = GazeDataCanvas(
+            screen_width=1920, screen_height=1200, plotting_window=200
+        )
         self.setCentralWidget(self.canvas)
         self._timer = QTimer(self)
         self._timer.start(1000 // self.canvas.update_freq)
         self._timer.timeout.connect(self._update)
-
 
     def _update(self):
         """Update the canvas plots"""
