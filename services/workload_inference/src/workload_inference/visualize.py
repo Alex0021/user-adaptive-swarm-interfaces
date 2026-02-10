@@ -15,13 +15,24 @@ class GazeDataCanvas(FigureCanvas):
 
     def __init__(
         self,
-        parent=None,
-        screen_width=1920,
-        screen_height=1200,
-        max_history=1000,
-        plotting_window=100,
-        update_freq=30,
+        parent: QMainWindow | None = None,
+        screen_width: int = 1920,
+        screen_height: int = 1200,
+        max_history: int = 1000,
+        plotting_window: int = 100,
+        update_freq: int = 30,
     ):
+        """
+        Initialize the canvas and subplots for gaze visualization. Screen size in pixels is needed to scale gaze positions correctly.
+
+        Args:
+            parent (QMainWindow | None): Parent window for the canvas.
+            screen_width (int): Width of the screen in pixels.
+            screen_height (int): Height of the screen in pixels.
+            max_history (int): Maximum number of data points to keep in history.
+            plotting_window (int): Number of data points to display in the plots.
+            update_freq (int): Frequency of plot updates in Hz.
+        """
         self.fig = Figure(figsize=(8, 6), dpi=100, tight_layout=True)
         super().__init__(self.fig)
         self.parent = parent
@@ -30,6 +41,8 @@ class GazeDataCanvas(FigureCanvas):
         self.window_size = plotting_window
         self.update_freq = update_freq
         self.data_cb_cnt = 0
+        self._timer = QTimer(parent)
+        self._timer.timeout.connect(self._update_all)
 
         # Initalize 3 plots
         ar = self.screen_height / self.screen_width
@@ -81,6 +94,8 @@ class GazeDataCanvas(FigureCanvas):
         self.mpl_connect("resize_event", self._on_resize)
         self._init_blit()
 
+        # self._timer.start(1000 // self.update_freq)
+
     def _init_plots(self):
         """Initialize plot styling and labels"""
         # Gaze trace plot
@@ -130,7 +145,7 @@ class GazeDataCanvas(FigureCanvas):
         self._blit_ready = False
         self.draw()
 
-    def blit_update(self):
+    def _blit_update(self):
         """Fast redraw using blitting"""
         if not self._blit_ready or self._background is None:
             self.draw_idle()
@@ -155,6 +170,7 @@ class GazeDataCanvas(FigureCanvas):
         self.update_gaze_trace()
         self.update_eye_validity()
         self.update_pupil_diameter()
+        self._blit_update()
 
     def update_pupil_diameter(self):
         """Update line plot for pupil diameter trends"""
@@ -221,7 +237,11 @@ class GazeDataCanvas(FigureCanvas):
             self.gaze_scatter.set_offsets(gaze_data)
 
     def datas_callback(self, gaze_datas: List[GazeData]):
-        """Callback to only store gaze data (minimal processing)"""
+        """Callback to only store gaze data (minimal processing)
+
+        Args:
+            gaze_datas (List[GazeData]): List of new gaze data points to add to the history
+        """
         for gaze_data in gaze_datas:
             self.data_cb_cnt += 1
             x = gaze_data.left_point_screen_x * self.screen_width
@@ -231,25 +251,6 @@ class GazeDataCanvas(FigureCanvas):
             left_diameter = float(gaze_data.left_pupil_diameter)
             right_diameter = float(gaze_data.right_pupil_diameter)
 
-            self.gaze_hist.append((x, y))
+            self.gaze_hist.append((float(x), float(y)))
             self.validity_hist.append((left_validity, right_validity))
             self.pupil_hist.append((left_diameter, right_diameter))
-
-
-class GazeVisualizerWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Gaze Visualizer")
-        self.setGeometry(100, 100, 800, 600)
-        self.canvas = GazeDataCanvas(
-            screen_width=1920, screen_height=1200, plotting_window=200
-        )
-        self.setCentralWidget(self.canvas)
-        self._timer = QTimer(self)
-        self._timer.start(1000 // self.canvas.update_freq)
-        self._timer.timeout.connect(self._update)
-
-    def _update(self):
-        """Update the canvas plots"""
-        self.canvas._update_all()
-        self.canvas.blit_update()
