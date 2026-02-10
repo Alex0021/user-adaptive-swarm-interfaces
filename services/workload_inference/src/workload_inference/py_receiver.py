@@ -3,7 +3,7 @@ import mmap
 import struct
 import threading
 import time
-from typing import Any, Callable, Protocol, TypeVar
+from typing import Any, Callable, Protocol
 
 import numpy as np
 import zmq
