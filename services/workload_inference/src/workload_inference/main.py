@@ -8,14 +8,13 @@ import zmq
 from PyQt6.QtWidgets import QApplication
 
 import workload_inference.data_structures as dts
-from workload_inference.experiment import ExperimentManager
+from workload_inference.experiment import ExperimentManager, ExperimentManagerWindow
 from workload_inference.processing import DataProcessor
 from workload_inference.py_receiver import (
     SMReceiver,
     SMReceiverCircularBuffer,
     ZMQReceiver,
 )
-from workload_inference.visualize import GazeVisualizerWindow
 
 
 def setup_logging():
@@ -34,21 +33,23 @@ def main():
 
     try:
         experiment_manager = ExperimentManager()
-        visualizer = GazeVisualizerWindow()
+        experiment_window = ExperimentManagerWindow(experiment_manager)
+        experiment_window.show()
+        experiment_window.start()
 
         # receiver = ZMQReceiver()
-        def print_drone_data(datas: list[dts.DroneData]):
-            for d in datas:
-                pos = np.array([d.position_x, d.position_y, d.position_z])
-                print(pos)
+        # def print_drone_data(datas: list[dts.DroneData]):
+        #     for d in datas:
+        #         pos = np.array([d.position_x, d.position_y, d.position_z])
+        #         print(pos)
 
-        receiver = SMReceiver(
-            mmap_name=dts.DRONE_DATA_BLOCK_NAME,
-            datatype=dts.DroneData,
-            update_rate=2,
-            listeners=[print_drone_data],
-            block_count=dts.DRONE_COUNT,
-        )
+        # receiver = SMReceiver(
+        #     mmap_name=dts.DRONE_DATA_BLOCK_NAME,
+        #     datatype=dts.DroneData,
+        #     update_rate=2,
+        #     listeners=[print_drone_data],
+        #     block_count=dts.DRONE_COUNT,
+        # )
         # receiver =  SMReceiverCircularBuffer(
         #     data_mmap_name=dts.GAZE_DATA_BLOCK_NAME,
         #     metadata_mmap_name=dts.METADATA_BLOCK_NAME,
@@ -58,7 +59,7 @@ def main():
         # receiver.register_listener(experiment_manager.datas_callback)
         # # receiver.register_listener(data_processor.datas_callback)
         # receiver.register_listener(visualizer.canvas.datas_callback)
-        receiver.start()
+        # receiver.start()
         # experiment_manager.start_recording()
     except Exception as e:
         logger.error("%s", e)
@@ -76,7 +77,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        receiver.stop()
+        # receiver.stop()
         experiment_manager.stop_recording()
 
     logger.info("Workload Inference Service Stopped")
