@@ -200,6 +200,7 @@ class SMReceiverCircularBuffer(PyReceiverBase):
         datatype: type[dts.DataclassLike],
         buffer_size: int,
         listeners: list[Listener] = [],
+        with_console: bool = False,
     ):
         super().__init__()
         # Acquire shared memory blocks
@@ -213,13 +214,15 @@ class SMReceiverCircularBuffer(PyReceiverBase):
         self._datatype = datatype
         self._listeners = listeners
         self._data_ptr: int = 0
+        self._with_console = with_console
         self._logger.info("SMReceiverCircularBuffer initialized.")
 
     def start(self) -> None:
         if self._metadata_block is None or self._data_block is None:
             raise RuntimeError("Failed to acquire shared memory blocks.")
 
-        self._console.start()
+        if self._with_console:
+            self._console.start()
         # Start main thread
         if self._thread is None:
             self._running = True
@@ -239,15 +242,19 @@ class SMReceiverCircularBuffer(PyReceiverBase):
             self._ready = metadata.stream_ready == 1
 
             if not self._ready:
-                self._console.print(
-                    "Waiting for stream to be ready...", use_spinner=True
-                )
+                if self._with_console:
+                    self._console.print(
+                        "Waiting for stream to be ready...", use_spinner=True
+                    )
                 time.sleep(0.1)
                 continue
 
             # Here you can add code to read gaze data if needed
             if metadata.active_data_cnt == 0:
-                self._console.print("No new gaze data available...", use_spinner=True)
+                if self._with_console:
+                    self._console.print(
+                        "No new gaze data available...", use_spinner=True
+                    )
                 time.sleep(0.1)
                 continue
 
@@ -268,12 +275,13 @@ class SMReceiverCircularBuffer(PyReceiverBase):
                 # reset cnt
                 metadata.active_data_cnt = np.uint8(0)
                 self.write_metadata_cnt(metadata)
-                self._console.print(
-                    f"Gaze Data Rate: {self._monitor.get_data_rate():.1f} Hz"
-                    f" | Avg Data Count: {self._monitor.get_avg_data_cnt():.1f}"
-                    f" | Total: {self._monitor.get_total_packets()}     ",
-                    use_spinner=True,
-                )
+                if self._with_console:
+                    self._console.print(
+                        f"Gaze Data Rate: {self._monitor.get_data_rate():.1f} Hz"
+                        f" | Avg Data Count: {self._monitor.get_avg_data_cnt():.1f}"
+                        f" | Total: {self._monitor.get_total_packets()}     ",
+                        use_spinner=True,
+                    )
                 # self.pretty_print_gaze_data(gaze_datas[-1])  # Print the latest gaze data
 
         self._monitor.reset()
