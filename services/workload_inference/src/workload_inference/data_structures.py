@@ -1,18 +1,18 @@
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Protocol
 
 import numpy as np
 
-# Block names
-METADATA_BLOCK_NAME = "TobiiUnityMetadata"
-GAZE_DATA_BLOCK_NAME = "TobiiUnityGazeData"
-NBACK_DATA_BLOCK_NAME = "ExperimentUnityNBackData"
-DRONE_DATA_BLOCK_NAME = "ExperimentUnityDroneData"
 
-# Blcok counts for circular buffer
-GAZE_DATA_BLOCK_CNT = 100
-NBACK_SEQUENCE_LEN = 10
-DRONE_COUNT = 9
+# Type aliases
+class DataclassLike(Protocol):
+    @staticmethod
+    def size() -> int: ...
+    @staticmethod
+    def from_buffer(data: bytes) -> "DataclassLike": ...
+    @staticmethod
+    def from_dict(data: dict[str, Any]) -> "DataclassLike": ...
 
 
 @dataclass
@@ -91,6 +91,7 @@ class NBackData:
 
 @dataclass
 class DroneData:
+    id: np.int8
     position_x: np.float32
     position_y: np.float32
     position_z: np.float32
@@ -115,7 +116,7 @@ class DroneData:
 
     @classmethod
     def size(cls) -> int:
-        return 3 * 4 + 3 * 4 + 3 * 4 + 3 * 4 + 3 * 4
+        return 1 + 3 * 4 + 3 * 4 + 3 * 4 + 3 * 4 + 3 * 4
 
     @classmethod
     def from_buffer(cls, buffer: bytes) -> "DroneData":
@@ -124,27 +125,29 @@ class DroneData:
                 f"Buffer size {len(buffer)} is smaller than expected size {cls.size()}."
             )
         return DroneData(
-            position_x=np.frombuffer(buffer[0:4], dtype=np.float32)[0],
-            position_y=np.frombuffer(buffer[4:8], dtype=np.float32)[0],
-            position_z=np.frombuffer(buffer[8:12], dtype=np.float32)[0],
-            orientation_x=np.frombuffer(buffer[12:16], dtype=np.float32)[0],
-            orientation_y=np.frombuffer(buffer[16:20], dtype=np.float32)[0],
-            orientation_z=np.frombuffer(buffer[20:24], dtype=np.float32)[0],
-            velocity_x=np.frombuffer(buffer[24:28], dtype=np.float32)[0],
-            velocity_y=np.frombuffer(buffer[28:32], dtype=np.float32)[0],
-            velocity_z=np.frombuffer(buffer[32:36], dtype=np.float32)[0],
-            angular_velocity_x=np.frombuffer(buffer[36:40], dtype=np.float32)[0],
-            angular_velocity_y=np.frombuffer(buffer[40:44], dtype=np.float32)[0],
-            angular_velocity_z=np.frombuffer(buffer[44:48], dtype=np.float32)[0],
-            acceleration_x=np.frombuffer(buffer[48:52], dtype=np.float32)[0],
-            acceleration_y=np.frombuffer(buffer[52:56], dtype=np.float32)[0],
-            acceleration_z=np.frombuffer(buffer[56:60], dtype=np.float32)[0],
+            id=np.frombuffer(buffer[0:1], dtype=np.int8)[0],
+            position_x=np.frombuffer(buffer[1:5], dtype=np.float32)[0],
+            position_y=np.frombuffer(buffer[5:9], dtype=np.float32)[0],
+            position_z=np.frombuffer(buffer[9:13], dtype=np.float32)[0],
+            orientation_x=np.frombuffer(buffer[13:17], dtype=np.float32)[0],
+            orientation_y=np.frombuffer(buffer[17:21], dtype=np.float32)[0],
+            orientation_z=np.frombuffer(buffer[21:25], dtype=np.float32)[0],
+            velocity_x=np.frombuffer(buffer[25:29], dtype=np.float32)[0],
+            velocity_y=np.frombuffer(buffer[29:33], dtype=np.float32)[0],
+            velocity_z=np.frombuffer(buffer[33:37], dtype=np.float32)[0],
+            angular_velocity_x=np.frombuffer(buffer[37:41], dtype=np.float32)[0],
+            angular_velocity_y=np.frombuffer(buffer[41:45], dtype=np.float32)[0],
+            angular_velocity_z=np.frombuffer(buffer[45:49], dtype=np.float32)[0],
+            acceleration_x=np.frombuffer(buffer[49:53], dtype=np.float32)[0],
+            acceleration_y=np.frombuffer(buffer[53:57], dtype=np.float32)[0],
+            acceleration_z=np.frombuffer(buffer[57:61], dtype=np.float32)[0],
         )
 
     @classmethod
     def from_dict(cls, data: dict) -> "DroneData":
         try:
             return DroneData(
+                id=np.int8(data["id"]),
                 position_x=np.float32(data["position"][0]),
                 position_y=np.float32(data["position"][1]),
                 position_z=np.float32(data["position"][2]),

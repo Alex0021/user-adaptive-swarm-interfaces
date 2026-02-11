@@ -3,7 +3,7 @@ import mmap
 import struct
 import threading
 import time
-from typing import Any, Callable, Protocol
+from typing import Callable
 
 import numpy as np
 import zmq
@@ -11,18 +11,7 @@ import zmq
 import workload_inference.data_structures as dts
 from workload_inference.utilities import ConsoleManager
 
-
-# Type aliases
-class DataclassLike(Protocol):
-    @staticmethod
-    def size() -> int: ...
-    @staticmethod
-    def from_buffer(data: bytes) -> "DataclassLike": ...
-    @staticmethod
-    def from_dict(data: dict[str, Any]) -> "DataclassLike": ...
-
-
-Listener = Callable[[list[DataclassLike]], None]
+Listener = Callable[[list[dts.DataclassLike]], None]
 
 
 class PyReceiverBase:
@@ -75,6 +64,15 @@ class PyReceiverBase:
         for key, value in gaze_data.__dict__.items():
             print(f"  {key}: {value}")
 
+    def is_alive(self) -> bool:
+        """
+        Check if the receiver was started.
+
+        Returns:
+            bool: True if the receiver is currently running, False otherwise.
+        """
+        return self._running
+
 
 class SMReceiver(PyReceiverBase):
     """
@@ -84,7 +82,7 @@ class SMReceiver(PyReceiverBase):
     def __init__(
         self,
         mmap_name: str,
-        datatype: type[DataclassLike],
+        datatype: type[dts.DataclassLike],
         update_rate: int,
         block_count: int = 1,
         listeners: list[Listener] = [],
@@ -128,7 +126,7 @@ class SMReceiver(PyReceiverBase):
 
         while self._running:
             if time.time() - self._last_timestamp >= 1.0 / self._update_rate:
-                datas: list[DataclassLike] = self.read_data_blocks()
+                datas: list[dts.DataclassLike] = self.read_data_blocks()
                 self._last_timestamp = time.time()
                 # Notify listeners
                 with self._lock:
@@ -167,7 +165,7 @@ class SMReceiver(PyReceiverBase):
         self._logger.info("Shared memory block (%s) acquired.", block_name)
         return shm
 
-    def read_data_blocks(self) -> list[DataclassLike]:
+    def read_data_blocks(self) -> list[dts.DataclassLike]:
         """
         Read the data block(s) from shared memory.
 
@@ -175,7 +173,7 @@ class SMReceiver(PyReceiverBase):
             List[DataclassLike]: A list of instances of the dataclass containing the fields and their values.
         """
         assert self._data_block is not None, "Data block is not initialized."
-        datas: list[DataclassLike] = []
+        datas: list[dts.DataclassLike] = []
         self._data_block.seek(0)  # Seek to the beginning to read the timestamp
         self._data_timestamp = struct.unpack("<d", self._data_block.read(8))[
             0
@@ -199,7 +197,7 @@ class SMReceiverCircularBuffer(PyReceiverBase):
         self,
         data_mmap_name: str,
         metadata_mmap_name: str,
-        datatype: type[DataclassLike],
+        datatype: type[dts.DataclassLike],
         buffer_size: int,
         listeners: list[Listener] = [],
     ):
@@ -308,14 +306,14 @@ class SMReceiverCircularBuffer(PyReceiverBase):
         data = self._metadata_block.read(dts.Metadata.size())
         return dts.Metadata.from_buffer(data)
 
-    def read_data_blocks(self, count: int = 1) -> list[DataclassLike]:
+    def read_data_blocks(self, count: int = 1) -> list[dts.DataclassLike]:
         """
         Read gaze data blocks from shared memory.
 
         Returns:
             list[DataclassLike]: A list of dataclass instances containing the gaze data fields and their values.
         """
-        datas: list[DataclassLike] = []
+        datas: list[dts.DataclassLike] = []
         block_size = self._datatype.size()
 
         assert self._data_block is not None, "Gaze data block is not initialized."
@@ -350,7 +348,9 @@ class ZMQReceiver(PyReceiverBase):
 
     SOCKET_SUB_FILTER = ""
 
-    def __init__(self, datatype: DataclassLike, address: str = "tcp://localhost:5555"):
+    def __init__(
+        self, datatype: dts.DataclassLike, address: str = "tcp://localhost:5555"
+    ):
         super().__init__()
         self._datatype = datatype
         self._context = zmq.Context()
