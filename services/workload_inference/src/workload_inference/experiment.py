@@ -32,7 +32,7 @@ GAZE_DATA_FILE_NAME = "gaze_data.csv"
 DRONE_DATA_FILE_NAME = "drone_data.csv"
 NBACK_DATA_FILE_NAME = "nback_data.csv"
 GAZE_CSV_HEADER = GazeData.__annotations__.keys()
-DRONE_CSV_HEADER = ["timestamp"] + list(DroneData.__annotations__.keys())
+DRONE_CSV_HEADER = DroneData.__annotations__.keys()
 NBACK_CSV_HEADER = NBackData.__annotations__.keys()
 EXPERIMENT_STATUS_UPDATE_RATE_MS = 500
 
@@ -90,7 +90,7 @@ class ExperimentManager:
         else:
             with open(self.base_folder / CONFIG_FILE_NAME) as f:
                 self.experiment_config = yaml.safe_load(f)
-        self._initialize_structure()
+        self._initialize_structure(overwrite=True)
         logger.info("Initialized with queue size %d.", queue_size)
 
     def start_receivers(self) -> None:
@@ -149,13 +149,12 @@ class ExperimentManager:
         if self._nback_receiver is not None:
             self._nback_receiver.register_listener(self.nback_datas_callback)
 
-    def _initialize_structure(self, overwrite: bool = True) -> None:
+    def _initialize_structure(self, overwrite: bool = False) -> None:
         """
         Initialize the experiment data file structure.
 
         Args:
             overwrite (bool, optional): Whether to overwrite existing files.
-            Defaults to True.
         Raises:
             FileExistsError: If the experiment data file already exists and
             overwrite is False.
@@ -164,49 +163,36 @@ class ExperimentManager:
             logger.warning(
                 "Experiment name not found in configuration. Using 'anonymous'."
             )
-        if "name" not in self.experiment_config["participant"]:
-            logger.warning(
-                "Participant name not found in configuration. Using 'person'."
-            )
+        if "uid" not in self.experiment_config["participant"]:
+            logger.warning("Participant UID not found in configuration. Using 'X123'.")
         if "tasks" not in self.experiment_config:
             logger.error(
                 "At least one task must be defined in the experiment configuration."
             )
             return
         exp_name = self.experiment_config.get("name", "anonymous")
-        participant_name = self.experiment_config["participant"].get("name", "person")
-        tasks_list = self.experiment_config["tasks"]
-        # Generate all folders based on tasks and trials
-        for task in tasks_list:
-            if "name" not in task:
-                logger.error("Each task must have a name defined in the configuration.")
-                return
-            if "trials" not in task or not isinstance(task["trials"], int):
-                logger.error(
-                    "Task %s must have an integer 'trials' field defined.",
-                    task.get("name", "unknown"),
-                )
-                return
-            for trial in range(task["trials"]):
-                # Make sure folders are snake_case (especially for linux compatibility)
-                formatted_str_path = "/".join(
-                    part.strip().lower().replace(" ", "_")
-                    for part in [
-                        exp_name,
-                        participant_name,
-                        task["name"],
-                        f"trial_{trial+1}",
-                    ]
-                )
-                exp_folder = self.base_folder / formatted_str_path
-                exp_folder.mkdir(parents=True, exist_ok=True)
+        if not isinstance(exp_name, str):
+            logger.error(
+                "Experiment name must be a string. Got '%s'.",
+                exp_name,
+            )  #
+            exp_name = "anonymous"
+        participant_uid = self.experiment_config["participant"].get("uid", "X123")
+        if not isinstance(participant_uid, str):
+            logger.error(
+                "Participant UID must be a string. Got '%s'.",
+                participant_uid,
+            )
+            participant_uid = "X123"
+        exp_folder = self.base_folder / exp_name / participant_uid
+        exp_folder.mkdir(parents=True, exist_ok=True)
 
         # Sanity check if any data file already exists
         existing_files = glob.glob(
             str(
                 self.base_folder
                 / exp_name
-                / participant_name
+                / participant_uid
                 / "**"
                 / GAZE_DATA_FILE_NAME
             ),
@@ -216,7 +202,7 @@ class ExperimentManager:
             str(
                 self.base_folder
                 / exp_name
-                / participant_name
+                / participant_uid
                 / "**"
                 / DRONE_DATA_FILE_NAME
             ),
@@ -226,7 +212,7 @@ class ExperimentManager:
             str(
                 self.base_folder
                 / exp_name
-                / participant_name
+                / participant_uid
                 / "**"
                 / NBACK_DATA_FILE_NAME
             ),
@@ -236,27 +222,27 @@ class ExperimentManager:
         if existing_files and not overwrite:
             raise FileExistsError(
                 "Some experiment data files already exists in "
-                f"{self.base_folder / exp_name / participant_name}."
+                f"{self.base_folder / exp_name / participant_uid}."
                 " Please check carefully before overwriting. "
                 f"Found {len(existing_files)} existing files."
                 "Set overwrite=True or delete existing files to proceed."
             )
 
-    def update_internal_state(self, new_state: ExperimentStatus) -> None:
+    def update_internal_state(self, new_status: ExperimentStatus) -> None:
         """Update the internal experiment state based on the provided status."""
         if self._last_status is None:
-            self._last_status = new_state
+            self._last_status = new_status
             return
 
         # Check for critical states (for data writing)
-        if new_state.current_state != self._last_status.current_state:
-            if new_state.current_state == ExperimentState.FlyingPractice:
+        if new_status.current_state != self._last_status.current_state:
+            if new_status.current_state == ExperimentState.FlyingPractice:
                 # Set folder path
                 self._current_folder = (
                     self.base_folder
                     / self.experiment_config["name"]
-                    / self.experiment_config["participant"]["name"]
-                    / new_state.current_state.name
+                    / self.experiment_config["participant"]["uid"]
+                    / new_status.current_state.name
                 )
                 # Set file to data writers
                 self._gaze_data_writer.new_file(
@@ -269,34 +255,31 @@ class ExperimentManager:
                 self._gaze_data_writer.start()
                 self._drone_data_writer.start()
                 self.start_receivers()
-            elif new_state.current_state == ExperimentState.NBackPractice:
+            elif new_status.current_state == ExperimentState.NBackPractice:
                 # Set folder
                 self._current_folder = (
                     self.base_folder
                     / self.experiment_config["name"]
-                    / self.experiment_config["participant"]["name"]
-                    / new_state.current_state.name
-                    / f"NBack{new_state.current_nback_level}"
+                    / self.experiment_config["participant"]["uid"]
+                    / new_status.current_state.name
+                    / f"NBack{new_status.current_nback_level}"
                 )
                 self._gaze_data_writer.new_file(
                     self._current_folder / GAZE_DATA_FILE_NAME
                 )
                 self._gaze_data_writer.start()
                 self.start_receivers()
-            elif (
-                new_state.previous_state == ExperimentState.NBackPractice
-                and new_state.current_state != ExperimentState.NBackPractice
-            ):
+            elif new_status.current_state != ExperimentState.NBackPractice:
                 # Save latest N-back data
                 self.dump_latest_nback_data()
-            elif new_state.current_state == ExperimentState.Trial:
+            elif new_status.current_state == ExperimentState.Trial:
                 # Set folder
                 self._current_folder = (
                     self.base_folder
                     / self.experiment_config["name"]
-                    / self.experiment_config["participant"]["name"]
-                    / f"{new_state.current_task}"
-                    / f"trial_{new_state.current_trial}"
+                    / self.experiment_config["participant"]["uid"]
+                    / f"{new_status.current_task}"
+                    / f"trial_{new_status.current_trial}"
                 )
                 # Set file to data writers
                 self._gaze_data_writer.new_file(
@@ -315,6 +298,8 @@ class ExperimentManager:
                     self._gaze_data_writer.stop()
                 if self._drone_data_writer is not None:
                     self._drone_data_writer.stop()
+
+        self._last_status = new_status
 
     def nback_datas_callback(self, nback_datas: list[NBackData]) -> None:
         """Callback to receive the latest N-back data."""
@@ -436,8 +421,11 @@ class ExperimentManagerWindow:
             QLabel("**Participant UID:**", textFormat=Qt.TextFormat.MarkdownText), 1, 0
         )
         self._uid_value_label = QLabel(
-            f"{self.experiment_manager.experiment_config['participant']
-               .get('uid', '????')}"
+            f"{
+                self.experiment_manager.experiment_config['participant'].get(
+                    'uid', '????'
+                )
+            }"
         )
         self._experiment_info_layout.addWidget(self._uid_value_label, 1, 1)
         # Task name label
