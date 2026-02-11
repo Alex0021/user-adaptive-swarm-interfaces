@@ -1,5 +1,6 @@
 import glob
 import logging
+from pathlib import Path
 
 import yaml
 from PyQt6.QtCore import Qt, QTimer
@@ -65,10 +66,12 @@ class ExperimentManager:
         # Data writers
         self._gaze_data_writer: ExperimentDataWriter | None = None
         self._drone_data_writer: ExperimentDataWriter | None = None
+        self._current_folder: Path | None = None
 
         # Experiment status
         self._last_status: ExperimentStatus | None = None
         self.nback_latest_datas: list[NBackData] | None = None
+        self._request_nback_dump = False
 
         # Try to read experiment data from yaml file
         if not (self.base_folder / CONFIG_FILE_NAME).exists():
@@ -269,9 +272,7 @@ class ExperimentManager:
                 )
                 self._gaze_data_writer.start()
                 self.start_receivers()
-            elif new_status.current_state != ExperimentState.NBackPractice:
-                # Save latest N-back data
-                self.dump_latest_nback_data()
+                self._request_nback_dump = True
             elif new_status.current_state == ExperimentState.Trial:
                 # Set folder
                 self._current_folder = (
@@ -292,12 +293,14 @@ class ExperimentManager:
                 self._gaze_data_writer.start()
                 self._drone_data_writer.start()
                 self.start_receivers()
+                self._request_nback_dump = True
             else:
                 # Stop recording of writers
                 if self._gaze_data_writer is not None:
                     self._gaze_data_writer.stop()
                 if self._drone_data_writer is not None:
                     self._drone_data_writer.stop()
+                self.dump_latest_nback_data()
 
         self._last_status = new_status
 
@@ -307,6 +310,8 @@ class ExperimentManager:
 
     def dump_latest_nback_data(self) -> None:
         """Dump the latest N-back data into a csv file."""
+        if not self._request_nback_dump:
+            return
         if self.nback_latest_datas is None:
             logger.warning("No N-back data available to dump.")
             return
@@ -328,6 +333,7 @@ class ExperimentManager:
             "Dumped latest N-back data to '%s'",
             self._current_folder / NBACK_DATA_FILE_NAME,
         )
+        self._request_nback_dump = False
 
     def get_experiment_status(self) -> tuple[bool, ExperimentStatus | None]:
         """Fetch the current experiment status from the API."""
