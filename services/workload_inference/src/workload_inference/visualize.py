@@ -94,7 +94,7 @@ class GazeDataCanvas(FigureCanvas):
         self.mpl_connect("resize_event", self._on_resize)
         self._init_blit()
 
-        # self._timer.start(1000 // self.update_freq)
+        self._timer.start(1000 // self.update_freq)
 
     def _init_plots(self):
         """Initialize plot styling and labels"""
