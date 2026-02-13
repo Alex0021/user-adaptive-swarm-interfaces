@@ -1,19 +1,19 @@
 import glob
 import logging
-from pathlib import Path
 import threading
 import time
+from pathlib import Path
 
 import yaml
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QGridLayout,
+    QHBoxLayout,
     QLabel,
     QMainWindow,
     QPushButton,
     QVBoxLayout,
     QWidget,
-    QHBoxLayout
 )
 
 from workload_inference.api import ExperimentAPI, ExperimentAPIError
@@ -105,7 +105,9 @@ class ExperimentManager:
                 self.experiment_config = yaml.safe_load(f)
         self._initialize_structure(overwrite=True)
         logger.info("Initialized with queue size %d.", queue_size)
-        self._api_thread = threading.Thread(target=self._experiment_status_querry, daemon=True)
+        self._api_thread = threading.Thread(
+            target=self._experiment_status_querry, daemon=True
+        )
         self._api_thread_running = True
         self._api_thread.start()
 
@@ -354,7 +356,7 @@ class ExperimentManager:
             try:
                 self._current_status = self._api.get_experiment_state()
                 self.update_internal_state(self._current_status)
-                self.api_on_error = False
+                self._api_on_error = False
             except ExperimentAPIError as e:
                 logger.error("Failed to fetch experiment status: %s", e)
                 self._api_on_error = True
@@ -381,11 +383,16 @@ class ExperimentManager:
     @property
     def gaze_receiver(self) -> SMReceiverCircularBuffer | None:
         return self._gaze_receiver
-    
+
     @property
     def api_on_error(self) -> bool:
         return self._api_on_error
-        
+
+    @api_on_error.setter
+    def api_on_error(self, value: bool) -> None:
+        with self._lock:
+            self._api_on_error = value
+
     @property
     def experiment_status(self) -> ExperimentStatus | None:
         return self._current_status
@@ -487,8 +494,8 @@ class ExperimentManagerWindow:
         nback_info_layout.addWidget(
             QLabel("**N-back order:**", textFormat=Qt.TextFormat.MarkdownText)
         )
-        self._nback_sequence_value_label = QLabel("N/A")
-        nback_info_layout.addWidget(self._nback_sequence_value_label)
+        self._nback_levels_value_label = QLabel("N/A")
+        nback_info_layout.addWidget(self._nback_levels_value_label)
         # Vertical separator
         separator = QLabel("|")
         separator.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -597,7 +604,7 @@ class ExperimentManagerWindow:
         self._task_number_value_label.setText(f"#{status.current_task}")
         self._trial_number_value_label.setText(f"#{status.current_trial}")
         # Update N-back sequence and level
-        self._nback_sequence_value_label.setText(
+        self._nback_levels_value_label.setText(
             " -> ".join(map(str, status.nback_levels_order))
             if status.nback_levels_order
             else "N/A"
@@ -610,7 +617,7 @@ class ExperimentManagerWindow:
         nback_data = self.experiment_manager.nback_latest_datas
         if nback_data is not None:
             stimuli = [str(data.stimulus) for data in nback_data]
-            self._nback_sequence_value_label.setText("[" + ", ".join(stimuli) + "]")
+            self._nback_sequence_value_label.setText(" -> ".join(map(str, stimuli)))
 
     def _toggle_current_state_border(self):
         if self._flash_visible:

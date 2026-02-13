@@ -201,6 +201,7 @@ class SMReceiverCircularBuffer(PyReceiverBase):
         buffer_size: int,
         listeners: list[Listener] = [],
         with_console: bool = False,
+        target_hz: int = 100,
     ):
         super().__init__()
         # Acquire shared memory blocks
@@ -215,6 +216,7 @@ class SMReceiverCircularBuffer(PyReceiverBase):
         self._listeners = listeners
         self._data_ptr: int = 0
         self._with_console = with_console
+        self._target_hz = target_hz
         self._logger.info("SMReceiverCircularBuffer initialized.")
 
     def start(self) -> None:
@@ -226,7 +228,7 @@ class SMReceiverCircularBuffer(PyReceiverBase):
         # Start main thread
         if self._thread is None:
             self._running = True
-            self._thread = threading.Thread(target=self._run)
+            self._thread = threading.Thread(target=self._run, daemon=True)
             self._thread.start()
 
     def stop(self) -> None:
@@ -236,6 +238,7 @@ class SMReceiverCircularBuffer(PyReceiverBase):
             self._thread = None
 
     def _run(self) -> None:
+        target_interval: float = 1.0 / self._target_hz
         while self._running:
             # Check the stream_ready flag in metadata
             metadata = self.read_metadata_block()
@@ -263,6 +266,7 @@ class SMReceiverCircularBuffer(PyReceiverBase):
         self._monitor.start()
 
         while self._running:
+            loop_start = time.perf_counter()
             metadata = self.read_metadata_block()
             if metadata.active_data_cnt > 0:
                 gaze_datas = self.read_data_blocks(int(metadata.active_data_cnt))
@@ -283,6 +287,11 @@ class SMReceiverCircularBuffer(PyReceiverBase):
                         use_spinner=True,
                     )
                 # self.pretty_print_gaze_data(gaze_datas[-1])  # Print the latest gaze data
+
+            elapsed = time.perf_counter() - loop_start
+            remaining = target_interval - elapsed
+            if remaining > 0:
+                time.sleep(remaining)
 
         self._monitor.reset()
 

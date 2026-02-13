@@ -1,13 +1,21 @@
+import logging
+import os
+
+os.environ["QT_API"] = "PyQt6"  # Ensure PyQt6 is used for matplotlib backend
+import time
 from collections import deque
 from typing import List
 
 import numpy as np
+import pandas as pd
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from matplotlib.widgets import Button, Slider
 from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import QMainWindow
+from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget
 
-from workload_inference.data_structures import GazeData
+from workload_inference.constants import DATA_DIR
+from workload_inference.data_structures import DroneData, GazeData
 
 
 class GazeDataCanvas(FigureCanvas):
@@ -254,3 +262,173 @@ class GazeDataCanvas(FigureCanvas):
             self.gaze_hist.append((float(x), float(y)))
             self.validity_hist.append((left_validity, right_validity))
             self.pupil_hist.append((left_diameter, right_diameter))
+
+
+class ReplaySlider:
+    """Placeholder for a replay slider widget to scrub through recorded data"""
+
+    def __init__(
+        self,
+        parent: QMainWindow | None = None,
+        min_value: int = 0,
+        max_value: int = 100,
+        initial_value: int = 0,
+        step: int = 1,
+        on_change: callable | None = None,
+    ):
+        self.figure = Figure(figsize=(4, 1), dpi=100, tight_layout=True)
+        self.widget = Slider(
+            ax=self.figure.add_subplot(2, 3, (1, 3)),
+            label="",
+            valmin=min_value,
+            valmax=max_value,
+            valinit=initial_value,
+            valstep=step,
+        )
+        self.play_btn = Button(ax=self.figure.add_subplot(235), label="Play")
+        self.step_back_btn = Button(ax=self.figure.add_subplot(234), label="<<")
+        self.step_forward_btn = Button(ax=self.figure.add_subplot(236), label=">>")
+        self.widget.on_changed(on_change if on_change else lambda val: None)
+        self.canvas = FigureCanvas(self.figure)
+        self.parent = parent
+        self.playing = False
+
+
+class ReplayData:
+    """
+    Load the data from the specified folder.
+    Allows streaming of data to simulate real-time playback.
+    Will stream using the usual callback mechanism to the visualizer.
+    """
+
+    def __init__(
+        self,
+        trial_folder: str,
+        gaze_callback: callable | None = None,
+        drone_callback: callable | None = None,
+        playback_window: int = 200,
+        sampling_rate: float = 30.0,
+    ):
+        self.data_folder = trial_folder
+        self._logger = logging.getLogger("ReplayData")
+        try:
+            self.gaze_data = pd.read_csv(os.path.join(trial_folder, "gaze_data.csv"))
+        except FileNotFoundError:
+            self._logger.error("Gaze data file not found in %s", trial_folder)
+            self.gaze_data = pd.DataFrame()
+        try:
+            self.drone_data = pd.read_csv(os.path.join(trial_folder, "drone_data.csv"))
+        except FileNotFoundError:
+            self._logger.error("Drone data file not found in %s", trial_folder)
+            self.drone_data = pd.DataFrame()
+
+        self._playing = False
+        self._idx = 0
+        self._playback_window = playback_window
+        self._sampling_rate = sampling_rate
+        self.gaze_callback = gaze_callback
+        self.drone_callback = drone_callback
+        self.timestamps = self._initializetime_stamps()
+
+    def _initializetime_stamps(self) -> list[float]:
+        """
+        Align gaze and drone data by closest timestamps at choosen frequency
+        and store in a dict for easy streaming to visualizer
+        """
+        start_timestamp = max(
+            self.gaze_data["timestamp"].min(), self.drone_data["timestamp"].min()
+        )
+        end_timestamp = min(
+            self.gaze_data["timestamp"].max(), self.drone_data["timestamp"].max()
+        )
+        timestamps = np.arange(
+            start_timestamp, end_timestamp, 1000 / self._sampling_rate
+        )
+        return timestamps
+
+    def get_closest_data(
+        self, ts: float
+    ) -> tuple[GazeData | None, list[DroneData] | None]:
+        """Get the closest gaze and drone data for a given timestamp"""
+        closest_gaze = self.gaze_data.iloc[
+            (self.gaze_data["timestamp"] - ts).abs().argsort()[:1]
+        ]
+        if not closest_gaze.empty:
+            gaze_row = closest_gaze.iloc[0]
+            gaze = GazeData(**gaze_row)
+        else:
+            gaze = None
+
+        closest_drone = self.drone_data.iloc[
+            (self.drone_data["timestamp"] - ts).abs().argsort()[:9]
+        ]
+        if not closest_drone.empty:
+            drones = [
+                DroneData(**drone_row) for _, drone_row in closest_drone.iterrows()
+            ]
+        else:
+            drones = None
+
+        return gaze, drones
+
+    def update_data_from_index(self, idx: int):
+        """Update the data for the current index and call the callbacks"""
+        if idx < 0 or idx >= len(self.timestamps):
+            self._logger.warning("Index %d out of range for timestamps", idx)
+            return
+
+        ts = self.timestamps[idx]
+        gaze, drones = self.get_closest_data(ts)
+
+        if gaze and self.gaze_callback:
+            self.gaze_callback([gaze])
+        if drones and self.drone_callback:
+            self.drone_callback(drones)
+
+    def get_range(self) -> tuple[float, float]:
+        """Get the timestamp range of the data for slider limits"""
+        return self.timestamps[0], self.timestamps[-1]
+
+
+class ExperimentDataReplayWindow(QMainWindow):
+    """Placeholder for a window that would allow replaying recorded experiment
+    data with the visualizer and slider"""
+
+    def __init__(self, parent: QMainWindow | None = None):
+        super().__init__(parent)
+        self.setWindowTitle("Experiment Data Replay")
+        self.setGeometry(150, 150, 1000, 800)
+
+        central_widget = QWidget()
+        layout = QVBoxLayout(central_widget)
+
+        self.visualizer = GazeDataCanvas(parent=self)
+        self.replay_slider = ReplaySlider(parent=self)
+
+        layout.addWidget(self.visualizer)
+        layout.addWidget(self.replay_slider.canvas)
+
+        central_widget.setLayout(layout)
+        self.setCentralWidget(central_widget)
+
+
+def main():
+    import sys
+
+    app = QApplication(sys.argv)
+
+    window = ExperimentDataReplayWindow()
+    replay_folder = DATA_DIR / "experiments/experiment_1/P001/task_1/trial_1"
+    replay_data = ReplayData(
+        trial_folder=str(replay_folder), gaze_callback=window.visualizer.datas_callback
+    )
+
+    window.replay_slider.widget.on_changed(replay_data.update_data_from_index)
+    window.replay_slider.widget.valmax = len(replay_data.timestamps) - 1
+    window.show()
+
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
