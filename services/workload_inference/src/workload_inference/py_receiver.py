@@ -3,15 +3,12 @@ import mmap
 import struct
 import threading
 import time
-from typing import Callable
 
 import numpy as np
 import zmq
 
 import workload_inference.data_structures as dts
 from workload_inference.utilities import ConsoleManager
-
-Listener = Callable[[list[dts.DataclassLike]], None]
 
 
 class PyReceiverBase:
@@ -25,8 +22,9 @@ class PyReceiverBase:
         self._running: bool = False
         self._ready: bool = False
 
-        self._listeners: list[Listener] = []
-        """Listeners for data updates. Each listener is a callable function that takes a list of Dataclass instances as an argument."""
+        self._listeners: list[dts.Listener] = []
+        """Listeners for data updates. Each listener is a callable function 
+        that takes a list of Dataclass instances as an argument."""
 
         self._monitor: Monitor = Monitor()
         self._console: ConsoleManager = ConsoleManager()
@@ -39,7 +37,7 @@ class PyReceiverBase:
     def stop(self) -> None:
         raise NotImplementedError()
 
-    def register_listener(self, listener: Listener) -> None:
+    def register_listener(self, listener: dts.Listener) -> None:
         """
         Register a listener to receive data updates.
 
@@ -85,7 +83,7 @@ class SMReceiver(PyReceiverBase):
         datatype: type[dts.DataclassLike],
         update_rate: int,
         block_count: int = 1,
-        listeners: list[Listener] | None = None,
+        listeners: list[dts.Listener] | None = None,
         with_console: bool = False,
     ):
         super().__init__()
@@ -170,7 +168,8 @@ class SMReceiver(PyReceiverBase):
         Read the data block(s) from shared memory.
 
         Returns:
-            List[DataclassLike]: A list of instances of the dataclass containing the fields and their values.
+            List[DataclassLike]: A list of instances of the dataclass
+            containing the fields and their values.
         """
         assert self._data_block is not None, "Data block is not initialized."
         datas: list[dts.DataclassLike] = []
@@ -199,7 +198,7 @@ class SMReceiverCircularBuffer(PyReceiverBase):
         metadata_mmap_name: str,
         datatype: type[dts.DataclassLike],
         buffer_size: int,
-        listeners: list[Listener] = [],
+        listeners: list[dts.Listener] | None = None,
         with_console: bool = False,
         target_hz: int = 100,
     ):
@@ -213,7 +212,7 @@ class SMReceiverCircularBuffer(PyReceiverBase):
         )
         self._buffer_size = buffer_size
         self._datatype = datatype
-        self._listeners = listeners
+        self._listeners = listeners if listeners is not None else []
         self._data_ptr: int = 0
         self._with_console = with_console
         self._target_hz = target_hz
@@ -286,7 +285,7 @@ class SMReceiverCircularBuffer(PyReceiverBase):
                         f" | Total: {self._monitor.get_total_packets()}     ",
                         use_spinner=True,
                     )
-                # self.pretty_print_gaze_data(gaze_datas[-1])  # Print the latest gaze data
+                # self.pretty_print_gaze_data(gaze_datas[-1])
 
             elapsed = time.perf_counter() - loop_start
             remaining = target_interval - elapsed
@@ -316,7 +315,8 @@ class SMReceiverCircularBuffer(PyReceiverBase):
         Read the metadata block from shared memory.
 
         Returns:
-            dts.Metadata: An instance of the Metadata dataclass containing the metadata fields and their values.
+            dts.Metadata: An instance of the Metadata dataclass containing
+            the metadata fields and their values.
         """
         assert self._metadata_block is not None, "Metadata block is not initialized."
         self._metadata_block.seek(0)
@@ -328,7 +328,8 @@ class SMReceiverCircularBuffer(PyReceiverBase):
         Read gaze data blocks from shared memory.
 
         Returns:
-            list[DataclassLike]: A list of dataclass instances containing the gaze data fields and their values.
+            list[DataclassLike]: A list of dataclass instances containing
+            the gaze data fields and their values.
         """
         datas: list[dts.DataclassLike] = []
         block_size = self._datatype.size()
