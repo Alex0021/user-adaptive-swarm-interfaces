@@ -29,3 +29,5 @@ data/
 local/
 
 datasets/
+
+docs/_*
