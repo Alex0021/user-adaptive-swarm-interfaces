@@ -219,6 +219,7 @@ class SMReceiverCircularBuffer(PyReceiverBase):
         self._data_ptr: int = 0
         self._with_console = with_console
         self._target_hz = target_hz
+        self._flag_resync = False
         self._logger.info("SMReceiverCircularBuffer initialized.")
 
     def start(self) -> None:
@@ -271,16 +272,13 @@ class SMReceiverCircularBuffer(PyReceiverBase):
             loop_start = time.perf_counter()
             metadata = self.read_metadata_block()
             if metadata.active_data_cnt > 0:
-                gaze_datas = self.read_data_blocks(int(metadata.active_data_cnt))
+                gaze_datas = self.read_data_blocks(metadata)
                 # Notify listeners
                 with self._lock:
                     for listener in self._listeners:
                         listener(gaze_datas)
                 # Update monitor
                 self._monitor.update(len(gaze_datas))
-                # reset cnt
-                metadata.active_data_cnt = np.uint8(0)
-                self.write_metadata_cnt(metadata)
                 if self._with_console:
                     self._console.print(
                         f"Gaze Data Rate: {self._monitor.get_data_rate():.1f} Hz"
@@ -326,7 +324,7 @@ class SMReceiverCircularBuffer(PyReceiverBase):
         data = self._metadata_block.read(dts.Metadata.size())
         return dts.Metadata.from_buffer(data)
 
-    def read_data_blocks(self, count: int = 1) -> list[dts.DataclassLike]:
+    def read_data_blocks(self, metadata: dts.Metadata) -> list[dts.DataclassLike]:
         """
         Read gaze data blocks from shared memory.
 
@@ -339,6 +337,21 @@ class SMReceiverCircularBuffer(PyReceiverBase):
 
         assert self._data_block is not None, "Gaze data block is not initialized."
 
+        # Rewrite data count to 0
+        count = metadata.active_data_cnt
+        metadata.active_data_cnt = np.uint8(0)
+        self.write_metadata_cnt(metadata)
+
+        # Check resync
+        if self._flag_resync:
+            if metadata.last_offset != self._data_ptr:
+                self._logger.warning(
+                    "Data pointer mismatch during resync. Expected: %d, Actual: %d",
+                    self._data_ptr,
+                    metadata.last_offset,
+                )
+                self._data_ptr = metadata.last_offset
+
         for _ in range(count):
             self._data_block.seek(self._data_ptr)
             data = self._data_block.read(block_size)
@@ -348,6 +361,8 @@ class SMReceiverCircularBuffer(PyReceiverBase):
             self._data_ptr += block_size
             # Check for circular buffer wrap-around
             if self._data_ptr >= block_size * self._buffer_size:
+                # Perform resync next time
+                self._flag_resync = True
                 self._data_ptr = 0
 
         return datas

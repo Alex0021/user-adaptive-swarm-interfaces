@@ -28,16 +28,17 @@ class Metadata:
     stream_ready: np.uint8
     calibration_ok: np.uint8
     active_data_cnt: np.uint8
+    last_offset: np.uint32
 
     def get_conversion_str(self) -> str:
-        return "BBB"
+        return "BBBi"
 
     def __len__(self) -> int:
         return self.size()
 
     @classmethod
     def size(cls) -> int:
-        return 1 + 1 + 1
+        return 1 + 1 + 1 + 4
 
     @classmethod
     def from_buffer(cls, buffer: bytes) -> Metadata:
@@ -45,6 +46,7 @@ class Metadata:
             stream_ready=np.frombuffer(buffer[0:1], dtype=np.uint8)[0],
             calibration_ok=np.frombuffer(buffer[1:2], dtype=np.uint8)[0],
             active_data_cnt=np.frombuffer(buffer[2:3], dtype=np.uint8)[0],
+            last_offset=np.frombuffer(buffer[3:7], dtype=np.uint32)[0],
         )
 
 

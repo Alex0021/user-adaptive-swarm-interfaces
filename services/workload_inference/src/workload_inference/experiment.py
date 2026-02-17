@@ -254,12 +254,6 @@ class ExperimentManager:
             self._last_status = new_status
             return
 
-        if (
-            new_status.current_state == ExperimentState.Wait
-            and new_status.previous_state == ExperimentState.Welcome
-            and self._start_time is None
-        ):
-            self._start_time = time.time()
         # Check for critical states (for data writing)
         if new_status.current_state != self._last_status.current_state:
             if (
@@ -600,19 +594,26 @@ class ExperimentManagerWindow:
 
         self._experiment_management_layout.addWidget(state_container, 1, 1)
 
-        # Ellapsed Time label
+        # Ellapsed Time panel
+        timer_panel = QWidget()
+        timer_layout = QHBoxLayout()
+        timer_panel.setLayout(timer_layout)
         self._ellapsed_time_label = QLabel(
             "00:00", alignment=Qt.AlignmentFlag.AlignRight
         )
         self._ellapsed_time_label.setStyleSheet("font-size: 20px; font-weight: bold;")
-        self._experiment_management_layout.addWidget(self._ellapsed_time_label, 2, 2)
+        timer_layout.addWidget(self._ellapsed_time_label,1)
+        self.start_ellapsed_time_button = QPushButton("Start timer")
+        self.start_ellapsed_time_button.setMinimumHeight(30)
+        self.start_ellapsed_time_button.clicked.connect(self._start_experiment_timer)
+        timer_layout.addWidget(self.start_ellapsed_time_button, 0)
+        self._experiment_management_layout.addWidget(timer_panel, 2, 2)
         self._ellapsed_timer = QTimer()
         self._ellapsed_timer.timeout.connect(self._update_ellapsed_time)
-        self._ellapsed_timer.start(1000)
 
         # Experiment buttons
         buttons_panel = QWidget()
-        buttons_layout = QGridLayout()
+        buttons_layout = QHBoxLayout()
         buttons_panel.setLayout(buttons_layout)
         self._experiment_management_layout.addWidget(buttons_panel, 1, 2)
 
@@ -620,7 +621,8 @@ class ExperimentManagerWindow:
         self._next_state_btn.setMinimumHeight(60)
         self._next_state_btn.clicked.connect(self.experiment_manager.request_next_state)
         self._next_state_btn.setEnabled(False)
-        buttons_layout.addWidget(self._next_state_btn, 0, 0)
+        buttons_layout.addWidget(self._next_state_btn, 1)
+
 
     def start(self):
         self._flash_visible = True
@@ -629,6 +631,10 @@ class ExperimentManagerWindow:
             self._update_experiment_status
         )
         self._experiment_status_update_timer.start(500)
+
+    #================
+    # Timer callbacks
+    #================
 
     def _update_ellapsed_time(self):
         if self.experiment_manager._duration is not None:
@@ -699,6 +705,16 @@ class ExperimentManagerWindow:
             )
             self._title_label.setStyleSheet("font-size: 24px; font-weight: bold;")
         self._flash_visible = not self._flash_visible
+
+    #==================
+    # BUTTONS callbacks
+    #==================
+
+    def _start_experiment_timer(self):
+        if self.experiment_manager._start_time is None:
+            self.experiment_manager._start_time = time.time()
+            self._ellapsed_timer.start(1000)
+        self.start_ellapsed_time_button.setEnabled(False)
 
     def attach_listeners(self):
         if self.experiment_manager.gaze_receiver is not None:
