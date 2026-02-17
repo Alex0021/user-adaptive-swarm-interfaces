@@ -25,7 +25,7 @@ dev = [
 
 [project.scripts]
 workload_inference = "workload_inference.main:main"
-visualize_task = "workload_inference.visualize:main"
+visualize_task = "workload_inference.visualizer.replay:main"
 generate_data = "workload_inference.test_data:main"
 
 [tool.black]

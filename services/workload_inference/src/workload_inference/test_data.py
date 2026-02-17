@@ -8,9 +8,9 @@ It will generate a gaze_data.csv and a drone_data.csv file.
 import time
 import argparse
 
-from workload_inference.constants import DATA_DIR
-from workload_inference.generator import FakeGazeGenerator, FakeDroneGenerator
-from workload_inference.utilities import ExperimentDataWriter
+from workload_inference.utils.constants import DATA_DIR
+from workload_inference.utils.generator import FakeGazeGenerator, FakeDroneGenerator
+from workload_inference.utils.utilities import ExperimentDataWriter
 
 import logging
 

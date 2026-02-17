@@ -14,7 +14,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
-from workload_inference.data_structures import GazeData, DroneData
+from workload_inference.data.data_structures import GazeData, DroneData
 
 logger = logging.getLogger("FakeGazeGenerator")
 
@@ -206,7 +206,7 @@ class FakeDroneGenerator:
 
             drone_data = DroneData(
                 timestamp=np.int64(time.time() * 1_000),
-                id = 0,
+                id = np.int8(0),
                 position_x=np.float32(x),
                 position_y=np.float32(y),
                 position_z=np.float32(z),

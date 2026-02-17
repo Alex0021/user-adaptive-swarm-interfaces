@@ -19,7 +19,7 @@ class DataclassLike(Protocol):
 T = TypeVar("T", bound=DataclassLike)
 
 
-class Listener(Protocol[T]):
+class Listener[T](Protocol):
     def __call__(self, datas: Sequence[T], batch_update: bool = False) -> None: ...
 
 

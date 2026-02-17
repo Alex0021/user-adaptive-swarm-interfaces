@@ -2,7 +2,7 @@ import logging
 
 import requests
 
-from workload_inference.data_structures import ExperimentStatus
+from workload_inference.data.data_structures import ExperimentStatus
 
 API_TIMEOUT = 0.1  # seconds
 

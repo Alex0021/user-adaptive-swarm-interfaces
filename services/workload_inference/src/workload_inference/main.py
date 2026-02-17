@@ -7,15 +7,15 @@ import numpy as np
 import zmq
 from PyQt6.QtWidgets import QApplication
 
-import workload_inference.data_structures as dts
-from workload_inference.experiment import ExperimentManager, ExperimentManagerWindow
-from workload_inference.processing import DataProcessor
-from workload_inference.py_receiver import (
+import workload_inference.data.data_structures as dts
+from workload_inference.experiment.app import ExperimentManagerWindow
+from workload_inference.experiment.manager import ExperimentManager
+from workload_inference.data.py_receiver import (
     SMReceiver,
     SMReceiverCircularBuffer,
     ZMQReceiver,
 )
-from workload_inference.generator import FakeGazeGenerator
+from workload_inference.utils.generator import FakeGazeGenerator
 
 
 def setup_logging():

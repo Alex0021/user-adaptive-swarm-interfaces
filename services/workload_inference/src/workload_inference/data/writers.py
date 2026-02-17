@@ -1,73 +1,13 @@
-import contextlib
+from pathlib import Path
+from collections.abc import Callable, Iterable, Sequence
+from typing import Any
+
 import logging
-import sys
 import threading
 import time
-from pathlib import Path
 from queue import Queue
-from typing import Any, Callable, Iterable, List, Optional, Sequence
 
-from workload_inference.data_structures import DataclassLike
-
-
-class ConsoleManager:
-    def __init__(self, interval: float = 0.25, spinner: str = "|/-\\"):
-        self._interval = interval
-
-        self._spinner = spinner
-        self._text: str = ""
-        self._use_spinner: bool = True
-        self._stop_event = threading.Event()
-        self._thread: Optional[threading.Thread] = None
-        self._lock = threading.Lock()
-
-    def start(self) -> None:
-        if self._thread is not None:
-            return
-        self._stop_event.clear()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-
-    def stop(self) -> None:
-        if self._thread is None:
-            return
-        self._stop_event.set()
-        self._thread.join()
-        self._thread = None
-        sys.stdout.write("\r" + " " * 120 + "\r")
-        sys.stdout.flush()
-
-    def print(self, text: str, use_spinner: Optional[bool] = None) -> None:
-        if text == self._text and use_spinner == self._use_spinner:
-            return
-        with self._lock:
-            self._text = text
-            if use_spinner is not None:
-                self._use_spinner = use_spinner
-
-    def set_spinner_enabled(self, enabled: bool) -> None:
-        with self._lock:
-            self._use_spinner = enabled
-
-    def set_spinner(self, spinner: str) -> None:
-        with self._lock:
-            self._spinner = spinner
-
-    def _run(self) -> None:
-        idx = 0
-        while not self._stop_event.is_set():
-            with self._lock:
-                prefix = (
-                    f"{self._spinner[idx % len(self._spinner)]} "
-                    if self._use_spinner
-                    else ""
-                )
-                line = f"\r{prefix}{self._text}"
-            sys.stdout.write(line)
-            sys.stdout.flush()
-            idx += 1
-            time.sleep(self._interval)
-
+from workload_inference.data.data_structures import DataclassLike
 
 class ExperimentDataWriter:
     """Reusable data writer that writes objects to a CSV-like file from a queue.
@@ -92,15 +32,15 @@ class ExperimentDataWriter:
         filepath: Path | None = None,
         block_size: int = 100,
         queue_size: int = 1000,
-        header: Optional[Iterable[str]] = None,
-        formatter: Optional[Callable[[Any], str]] = None,
+        header: Iterable[str] | None = None,
+        formatter: Callable[[Any], str] | None = None,
         name: str = "anonymous",
         encoding: str = "utf-8",
     ) -> None:
         self.filepath = filepath
         self._block_size = int(block_size)
         self._queue: Queue = Queue(maxsize=int(queue_size))
-        self._header: Optional[List[str]] = list(header) if header is not None else None
+        self._header: list[str] | None = list(header) if header is not None else None
         self._formatter = formatter
         self._encoding = encoding
         self._name = name

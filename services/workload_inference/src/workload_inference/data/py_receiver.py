@@ -7,8 +7,8 @@ import time
 import numpy as np
 import zmq
 
-import workload_inference.data_structures as dts
-from workload_inference.utilities import ConsoleManager
+import workload_inference.data.data_structures as dts
+from workload_inference.utils.utilities import ConsoleManager, Monitor
 
 
 class PyReceiverBase:
@@ -425,49 +425,3 @@ class ZMQReceiver(PyReceiverBase):
                 # self.pretty_print_gaze_data(gaze_data)  # Print the latest gaze data
             except zmq.Again:
                 time.sleep(0.01)  # No message received, wait a bit
-
-
-class Monitor:
-    def __init__(self):
-        self._last_timestamp: float = 0.0
-        self._data_rate: float = 0.0
-        self._data_cnt: int = 0
-        self._update_cnt: int = 0
-        self._data_cnt_avg: float = 0.0
-        self.total_packets: int = 0
-
-    def update(self, packets_received: int):
-        if self._last_timestamp == 0:
-            self.start()
-            return
-        self._data_cnt += packets_received
-        self._update_cnt += 1
-        self.total_packets += packets_received
-        if time.time() - self._last_timestamp >= 1.0:
-            self._data_rate = self._data_cnt / (time.time() - self._last_timestamp)
-            self._data_cnt_avg = (
-                self._data_cnt / self._update_cnt if self._update_cnt > 0 else 0.0
-            )
-            self._data_cnt = 0
-            self._update_cnt = 0
-            self._last_timestamp = time.time()
-
-    def start(self):
-        self.reset()
-        self._last_timestamp = time.time()
-
-    def reset(self):
-        self._last_timestamp = 0.0
-        self._data_rate = 0.0
-        self._data_cnt = 0
-        self._update_cnt = 0
-        self._data_cnt_avg = 0.0
-
-    def get_data_rate(self) -> float:
-        return self._data_rate
-
-    def get_avg_data_cnt(self) -> float:
-        return self._data_cnt_avg
-
-    def get_total_packets(self) -> int:
-        return self.total_packets

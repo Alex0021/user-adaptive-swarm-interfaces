@@ -25,7 +25,7 @@ Thumbs.db
 htmlcov/
 
 build/
-data/
+services/workload_inference/data/
 local/
 
 datasets/
