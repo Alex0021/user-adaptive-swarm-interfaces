@@ -205,10 +205,10 @@ class GazeData:
     right_validity: np.int8
     left_pupil_diameter: np.float32
     right_pupil_diameter: np.float32
-    left_openness_validity: np.int8 = 0
-    right_openness_validity: np.int8 = 0
-    left_openness: np.float32 = 0.0
-    right_openness: np.float32 = 0.0
+    left_openness_validity: np.int8 = np.int8(0)
+    right_openness_validity: np.int8 = np.int8(0)
+    left_openness: np.float32 = np.float32(0.0)
+    right_openness: np.float32 = np.float32(0.0)
 
     def get_conversion_str(self) -> str:
         return "<q10f2B2f2B2f"

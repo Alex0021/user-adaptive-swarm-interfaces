@@ -273,7 +273,7 @@ class SMReceiverCircularBuffer(PyReceiverBase):
                         for listener in self._listeners:
                             listener(gaze_datas)
                     # Update tail in metadata and write back
-                    metadata.tail = self._data_tail
+                    metadata.tail = np.int32(self._data_tail)
                     self.write_metadata_block(metadata)
                     # Update monitor
                     self._monitor.update(len(gaze_datas))
@@ -355,7 +355,7 @@ class SMReceiverCircularBuffer(PyReceiverBase):
         self._metadata_block.seek(2)  # Offset for receiver active
         self._metadata_block.write(metadata.is_receiver_ready.tobytes())
         self._metadata_block.seek(3 + 4)  # Offset for receiver tail
-        self._metadata_block.write(metadata.tail.to_bytes())
+        self._metadata_block.write(metadata.tail.tobytes())
         self._metadata_block.flush()
 
     def _set_receiver_ready_flag(self, ready: bool = True) -> None:

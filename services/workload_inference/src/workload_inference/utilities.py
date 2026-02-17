@@ -5,7 +5,7 @@ import threading
 import time
 from pathlib import Path
 from queue import Queue
-from typing import Any, Callable, Iterable, List, Optional
+from typing import Any, Callable, Iterable, List, Optional, Sequence
 
 from workload_inference.data_structures import DataclassLike
 
@@ -115,7 +115,9 @@ class ExperimentDataWriter:
         if self.filepath is not None:
             self.new_file(self.filepath)
 
-    def datas_callback(self, datas: list[DataclassLike]) -> None:
+    def datas_callback(
+        self, datas: Sequence[DataclassLike], batch_update: bool = False
+    ) -> None:
         """Callback to push a batch of data objects into the internal queue."""
         if not self._running:
             return
@@ -183,7 +185,7 @@ class ExperimentDataWriter:
         if remaining:
             self._logger.info("Flushing %d remaining items before close", remaining)
         while not self._queue.empty():
-            item = self._queue.get(self.WAIT_BLOCK_TIMEOUT)
+            item = self._queue.get(timeout=self.WAIT_BLOCK_TIMEOUT)
             line = self._format_item(item)
             self._filestream.write(line + "\n")
             self._data_cnt += 1
@@ -210,7 +212,7 @@ class ExperimentDataWriter:
         while self._running:
             if self._queue.qsize() >= self._block_size:
                 for _ in range(self._block_size):
-                    item = self._queue.get(self.WAIT_BLOCK_TIMEOUT)
+                    item = self._queue.get(timeout=self.WAIT_BLOCK_TIMEOUT)
                     line = self._format_item(item)
                     self._filestream.write(line + "\n")
                 self._filestream.flush()

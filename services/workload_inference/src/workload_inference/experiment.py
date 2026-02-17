@@ -2,7 +2,9 @@ import glob
 import logging
 import threading
 import time
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import yaml
 from PyQt6.QtCore import Qt, QTimer
@@ -294,10 +296,11 @@ class ExperimentManager:
                     / new_status.current_state.name
                     / f"NBack{new_status.current_nback_level}"
                 )
-                self._gaze_data_writer.new_file(
-                    self._current_folder / GAZE_DATA_FILE_NAME
-                )
-                self._gaze_data_writer.start()
+                if self._gaze_data_writer is not None:
+                    self._gaze_data_writer.new_file(
+                        self._current_folder / GAZE_DATA_FILE_NAME
+                    )
+                    self._gaze_data_writer.start()
                 self.start_receivers()
                 self._request_nback_dump = True
             elif new_status.current_state == ExperimentState.Trial:
@@ -310,15 +313,16 @@ class ExperimentManager:
                     / f"trial_{new_status.current_trial}"
                 )
                 # Set file to data writers
-                self._gaze_data_writer.new_file(
-                    self._current_folder / GAZE_DATA_FILE_NAME
-                )
-                self._drone_data_writer.new_file(
-                    self._current_folder / DRONE_DATA_FILE_NAME
-                )
-                # Start recording
-                self._gaze_data_writer.start()
-                self._drone_data_writer.start()
+                if self._gaze_data_writer is not None:
+                    self._gaze_data_writer.new_file(
+                        self._current_folder / GAZE_DATA_FILE_NAME
+                    )
+                    self._gaze_data_writer.start()
+                if self._drone_data_writer is not None:
+                    self._drone_data_writer.new_file(
+                        self._current_folder / DRONE_DATA_FILE_NAME
+                    )
+                    self._drone_data_writer.start()
                 self.start_receivers()
                 self._request_nback_dump = True
             else:
@@ -331,9 +335,17 @@ class ExperimentManager:
 
         self._last_status = new_status
 
-    def nback_datas_callback(self, nback_datas: list[NBackData]) -> None:
+    def nback_datas_callback(
+        self, datas: Sequence[NBackData], batch_update: bool = False
+    ) -> None:
         """Callback to receive the latest N-back data."""
-        self.nback_latest_datas = nback_datas
+        if not isinstance(datas, list):
+            logger.warning(
+                "Received N-back data is not a list. Got type '%s'. Ignoring.",
+                type(datas),
+            )
+            return
+        self.nback_latest_datas = datas
 
     def dump_latest_nback_data(self) -> None:
         """Dump the latest N-back data into a csv file."""
@@ -432,12 +444,13 @@ class ExperimentManager:
         return self._current_status
 
 
-class ExperimentManagerWindow:
+class ExperimentManagerWindow(QMainWindow):
     """
     PyQt application to manage the experiment and visualize realtime gaze data.
     """
 
     def __init__(self, experiment_manager: ExperimentManager):
+        super().__init__()
         self.experiment_manager = experiment_manager
         self._is_status_error = True
 
@@ -445,18 +458,16 @@ class ExperimentManagerWindow:
         self._initialize_widgets()
 
     def _initialize_core_compoonents(self):
-        self._window = QMainWindow()
-        self._window.setWindowTitle("Experiment Manager")
-        self._window.setGeometry(100, 100, 1200, 800)
-        self._window.closeEvent = self._on_window_close
+        self.setWindowTitle("Experiment Manager")
+        self.setGeometry(100, 100, 1200, 800)
         self._layout = QVBoxLayout()
         self._central_widget = QWidget()
         self._central_widget.setLayout(self._layout)
-        self._window.setCentralWidget(self._central_widget)
+        self.setCentralWidget(self._central_widget)
 
     def _initialize_widgets(self):
         self._gaze_visualizer = GazeDataCanvas(
-            parent=self._window,
+            parent=self,
             screen_width=1920,
             screen_height=1200,
             plotting_window=200,
@@ -469,9 +480,8 @@ class ExperimentManagerWindow:
         self._layout.addWidget(self._gaze_visualizer, 1)
 
         # Title
-        self._title_label = QLabel(
-            "Experiment Management", alignment=Qt.AlignmentFlag.AlignCenter
-        )
+        self._title_label = QLabel("Experiment Management")
+        self._title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._title_label.setStyleSheet("font-size: 24px; font-weight: bold;")
         self._experiment_management_layout.addWidget(self._title_label, 0, 0, 1, 3)
         # Panel for experiment info
@@ -480,9 +490,10 @@ class ExperimentManagerWindow:
         self._experiment_info_panel.setLayout(self._experiment_info_layout)
         self._experiment_management_layout.addWidget(self._experiment_info_panel, 1, 0)
         # Experiment name label
-        self._experiment_info_layout.addWidget(
-            QLabel("**Experiment:**", textFormat=Qt.TextFormat.MarkdownText),
-        )
+        exp_label = QLabel("Experiment:")
+        exp_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        exp_label.setStyleSheet("font-weight: bold;")
+        self._experiment_info_layout.addWidget(exp_label)
         self._experiment_name_value_label = QLabel(
             f"{self.experiment_manager.experiment_config.get('name', 'unknown')}"
         )
@@ -493,9 +504,10 @@ class ExperimentManagerWindow:
         separator.setStyleSheet("font-size: 18px; color: gray;")
         self._experiment_info_layout.addWidget(separator)
         # UID label
-        self._experiment_info_layout.addWidget(
-            QLabel("**PUID:**", textFormat=Qt.TextFormat.MarkdownText)
-        )
+        uuid_label = QLabel("Participant UID:")
+        uuid_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        uuid_label.setStyleSheet("font-weight: bold;")
+        self._experiment_info_layout.addWidget(uuid_label)
         self._uid_value_label = QLabel(
             f"{
                 self.experiment_manager.experiment_config['participant'].get(
@@ -525,9 +537,9 @@ class ExperimentManagerWindow:
         nback_info_layout = QHBoxLayout()
         self._experiment_management_layout.addLayout(nback_info_layout, 2, 0, 1, 2)
         # Nback sequence label
-        nback_info_layout.addWidget(
-            QLabel("**N-back order:**", textFormat=Qt.TextFormat.MarkdownText)
-        )
+        nback_order_label = QLabel("N-back order:")
+        nback_order_label.setStyleSheet("font-weight: bold;")
+        nback_info_layout.addWidget(nback_order_label)
         self._nback_levels_value_label = QLabel("N/A")
         nback_info_layout.addWidget(self._nback_levels_value_label)
         # Vertical separator
@@ -536,9 +548,9 @@ class ExperimentManagerWindow:
         separator.setStyleSheet("font-size: 18px; color: gray;")
         nback_info_layout.addWidget(separator)
         # Current N-back label
-        nback_info_layout.addWidget(
-            QLabel("**Current Level:**", textFormat=Qt.TextFormat.MarkdownText)
-        )
+        current_nback_label = QLabel("Current N-back:")
+        current_nback_label.setStyleSheet("font-weight: bold;")
+        nback_info_layout.addWidget(current_nback_label)
         self._current_nback_level_value_label = QLabel("N/A")
         nback_info_layout.addWidget(self._current_nback_level_value_label)
         # Vertical separator
@@ -546,12 +558,21 @@ class ExperimentManagerWindow:
         separator.setAlignment(Qt.AlignmentFlag.AlignCenter)
         separator.setStyleSheet("font-size: 18px; color: gray;")
         nback_info_layout.addWidget(separator)
-        # NBack last two stimulus
-        nback_info_layout.addWidget(
-            QLabel("**Sequence:**", textFormat=Qt.TextFormat.MarkdownText)
-        )
+        # NBack sequence label
+        nback_sequece_label = QLabel("Sequence:")
+        nback_sequece_label.setStyleSheet("font-weight: bold;")
+        nback_info_layout.addWidget(nback_sequece_label)
         self._nback_sequence_value_label = QLabel("[N/A]")
-        nback_info_layout.addWidget(self._nback_sequence_value_label)
+        self._nback_sequence_value_label.setTextFormat(Qt.TextFormat.MarkdownText)
+        nback_info_layout.addWidget(self._nback_sequence_value_label, 1)
+        # NBack score
+        separator = QLabel("|")
+        separator.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        separator.setStyleSheet("font-size: 18px; color: gray;")
+        nback_info_layout.addWidget(separator)
+        self.nback_score_label = QLabel("Score: N/A")
+        self.nback_score_label.setStyleSheet("font-weight: bold;")
+        nback_info_layout.addWidget(self.nback_score_label)
 
         # Create state boxes with arrows
         state_container = QWidget()
@@ -562,9 +583,8 @@ class ExperimentManagerWindow:
         )
 
         # Previous state box
-        self._previous_state_label = QLabel(
-            "Previous", alignment=Qt.AlignmentFlag.AlignCenter
-        )
+        self._previous_state_label = QLabel("Previous")
+        self._previous_state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._previous_state_label.setStyleSheet(state_label_stylesheet)
         state_layout.addWidget(self._previous_state_label, 0, 0)
 
@@ -575,9 +595,8 @@ class ExperimentManagerWindow:
         state_layout.addWidget(label_arrow, 0, 1)
 
         # Current state box
-        self._current_state_label = QLabel(
-            "Current", alignment=Qt.AlignmentFlag.AlignCenter
-        )
+        self._current_state_label = QLabel("Current")
+        self._current_state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._current_state_label.setStyleSheet(state_label_stylesheet)
         state_layout.addWidget(self._current_state_label, 0, 2)
 
@@ -588,7 +607,8 @@ class ExperimentManagerWindow:
         state_layout.addWidget(label_arrow, 0, 3)
 
         # Next state box
-        self._next_state_label = QLabel("Next", alignment=Qt.AlignmentFlag.AlignCenter)
+        self._next_state_label = QLabel("Next")
+        self._next_state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._next_state_label.setStyleSheet(state_label_stylesheet)
         state_layout.addWidget(self._next_state_label, 0, 4)
 
@@ -598,9 +618,8 @@ class ExperimentManagerWindow:
         timer_panel = QWidget()
         timer_layout = QHBoxLayout()
         timer_panel.setLayout(timer_layout)
-        self._ellapsed_time_label = QLabel(
-            "00:00", alignment=Qt.AlignmentFlag.AlignRight
-        )
+        self._ellapsed_time_label = QLabel("00:00")
+        self._ellapsed_time_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         self._ellapsed_time_label.setStyleSheet("font-size: 20px; font-weight: bold;")
         timer_layout.addWidget(self._ellapsed_time_label, 1)
         self.start_ellapsed_time_button = QPushButton("Start timer")
@@ -682,8 +701,24 @@ class ExperimentManagerWindow:
         )
         nback_data = self.experiment_manager.nback_latest_datas
         if nback_data is not None:
-            stimuli = [str(data.stimulus) for data in nback_data]
-            self._nback_sequence_value_label.setText(" -> ".join(map(str, stimuli)))
+            stimuli = list(self._generate_nback_stimulus_click_expected(nback_data))
+            self._nback_sequence_value_label.setText(" -> ".join(stimuli))
+            score = sum(1 for data in nback_data if data.is_correct)
+            num_stimuli = sum(1 for data in nback_data if data.timestamp > 0)
+            self.nback_score_label.setText(f"Score: {score}/{num_stimuli}")
+
+    def _generate_nback_stimulus_click_expected(self, sequence: list[NBackData]):
+        """Yields the stimulus in the sequence, with expected clicks marked with **."""
+        nback_level = sequence[0].nback_level
+        for idx, data in enumerate(sequence):
+            if idx < nback_level:
+                yield str(data.stimulus)
+                continue
+            expected_click = data.stimulus == sequence[idx - nback_level].stimulus
+            if expected_click:
+                yield f"<span style='color: red;'><b>{data.stimulus}</b></span>"
+            else:
+                yield str(data.stimulus)
 
     def _toggle_current_state_border(self):
         if self._flash_visible:
@@ -726,15 +761,7 @@ class ExperimentManagerWindow:
                 "Cannot attach gaze visualizer listener."
             )
 
-    def show(self):
-        self._window.show()
-
-    def close(self):
-        # Programmatic close: trigger the window close which will call the
-        # installed close-event handler (`_on_window_close`).
-        self._window.close()
-
-    def _on_window_close(self, event) -> None:
+    def closeEvent(self, event: Any) -> None:
         """Handle QMainWindow close events and perform cleanup."""
         try:
             # Stop timers if running
