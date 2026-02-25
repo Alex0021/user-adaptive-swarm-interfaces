@@ -125,6 +125,17 @@ def preprocess_colet_data(
             f"Identified {len(custom_blinks_df)} blinks and {len(gaps_to_fill_df)} low confidence gaps to fill."
         )
 
+    # Add percentage of low confidence samples w.r.t total samples
+    total_samples = len(eye_df)
+    low_confidence_samples = (
+        gaps_to_fill_df["stop_id"] - gaps_to_fill_df["start_id"] + 1
+    ).sum()
+    blink_samples = (
+        custom_blinks_df["stop_id"] - custom_blinks_df["start_id"] + 1
+    ).sum()
+    eye_df["low_confidence_percentage"] = (
+        low_confidence_samples / (total_samples - blink_samples) * 100
+    )
     # Calculate gaze angles
     eye_df["gaze_angle_delta_deg"] = calculate_gaze_angular_delta(eye_df)
 

@@ -15,15 +15,15 @@ def merge_colet_eye_data(
     :return: merge dataframe
     """
     # First keep only the best pupil meausurement for each timestamp_sec
-    eye_df_best = raw_eye_df.groupby(
-        ["pupil_timestamp", "eye_id"], as_index=False
-    ).apply(lambda x: x.loc[x["confidence"].idxmax()])
-    eye_df_best.reset_index(drop=True, inplace=True)
-    eye_df_best.drop(columns=["norm_pos_x", "norm_pos_y"], inplace=True)
-    eye_df_best.rename(
-        columns={"diameter": "pupil_diameter_mm", "confidence": "pupil_confidence"},
-        inplace=True,
-    )
+    # eye_df_best = raw_eye_df.groupby(
+    #     ["pupil_timestamp", "eye_id"], as_index=False
+    # ).apply(lambda x: x.loc[x["confidence"].idxmax()])
+    # eye_df_best.reset_index(drop=True, inplace=True)
+    # eye_df_best.drop(columns=["norm_pos_x", "norm_pos_y"], inplace=True)
+    # eye_df_best.rename(
+    #     columns={"diameter": "pupil_diameter_mm", "confidence": "pupil_confidence"},
+    #     inplace=True,
+    # )
 
     # Merge the gaze and pupil dataframes on the timestamp_sec column
     gaze_start_time = raw_gaze_df["gaze_timestamp"].min()
