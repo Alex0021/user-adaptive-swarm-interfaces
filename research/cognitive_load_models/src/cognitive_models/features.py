@@ -39,6 +39,8 @@ def extract_window_features(
         features["fixations_duration_mean"] = fixations["duration_ms"].mean()
         features["fixations_duration_max"] = fixations["duration_ms"].max()
         features["fixations_duration_min"] = fixations["duration_ms"].min()
+        features["fixations_duration_skew"] = fixations["duration_ms"].skew()
+        features["fixations_duration_kurt"] = fixations["duration_ms"].kurtosis()
         features["fixations_duration_std"] = (
             fixations["duration_ms"].std() if len(fixations) > 1 else 0
         )
@@ -46,16 +48,23 @@ def extract_window_features(
     # 3- Saccades: count, peak_velocity, amplitude mean/max/min/std, duration mean/max/min/std
     features["saccades_count"] = len(saccades)
     if not saccades.empty:
-        features["saccades_peak_velocity_mean"] = saccades["peak_velocity"].mean()
+        features["saccades_peak_velocity_min"] = saccades["peak_velocity"].min()
+        features["saccades_peak_velocity_max"] = saccades["peak_velocity"].max()
+        features["saccades_peak_velocity_skew"] = saccades["peak_velocity"].skew()
+        features["saccades_peak_velocity_kurt"] = saccades["peak_velocity"].kurtosis()
         features["saccades_amplitude_mean"] = saccades["amplitude_deg"].mean()
         features["saccades_amplitude_max"] = saccades["amplitude_deg"].max()
         features["saccades_amplitude_min"] = saccades["amplitude_deg"].min()
+        features["saccades_amplitude_skew"] = saccades["amplitude_deg"].skew()
+        features["saccades_amplitude_kurt"] = saccades["amplitude_deg"].kurtosis()
         features["saccades_amplitude_std"] = (
             saccades["amplitude_deg"].std() if len(saccades) > 1 else 0
         )
         features["saccades_duration_mean"] = saccades["duration_ms"].mean()
         features["saccades_duration_max"] = saccades["duration_ms"].max()
         features["saccades_duration_min"] = saccades["duration_ms"].min()
+        features["saccades_duration_skew"] = saccades["duration_ms"].skew()
+        features["saccades_duration_kurt"] = saccades["duration_ms"].kurtosis()
         features["saccades_duration_std"] = (
             saccades["duration_ms"].std() if len(saccades) > 1 else 0
         )
@@ -64,14 +73,12 @@ def extract_window_features(
     blink_df = gaps_df[gaps_df["is_blink"]]
     if blink_df.empty:
         features["blinks_count"] = 0
-        features["blinks_duration_mean"] = 0
+        features["blinks_duration_max"] = 0
+        features["blinks_duration_min"] = 0
     else:
         features["blinks_count"] = len(blink_df)
-        features["blinks_duration_mean"] = 0
-        if not blink_df.empty:
-            features["blinks_duration_mean"] = (
-                blink_df["stop_timestamp"] - blink_df["start_timestamp"]
-            ).mean()
+        features["blinks_duration_max"] = blink_df["duration_ms"].max()
+        features["blinks_duration_min"] = blink_df["duration_ms"].min()
 
     # 5- Pupil related features
     features["pupil_lhipa"] = lhipa(window_pupil_df, wavelet_type="sym8")
