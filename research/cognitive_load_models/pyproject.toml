@@ -8,15 +8,6 @@ version = "0.1.0"
 requires-python = ">=3.13"
 
 dependencies = [
-  "numpy",
-  "pandas",
-  "scikit-learn",
-  "scipy",
-  "matplotlib",
-  "seaborn",
-  "jupyter",
-  "tqdm",
-  "pywavelets>=1.9.0",
 ]
 
 [tool.uv]

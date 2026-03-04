@@ -21,9 +21,7 @@ def detect_outliers(
     :return outliers_df: A DataFrame containing the detected outliers.
     """
 
-    def dilation_speed(
-        data, time_col="timestamp_sec", diameter_col="pupil_diameter_px"
-    ):
+    def dilation_speed(data, time_col="timestamp_sec", diameter_col=column):
         speed_before = data[diameter_col].diff(1) / data[time_col].diff(1)
         speed_after = data[diameter_col].diff(-1) / data[time_col].diff(-1)
         return pd.concat([speed_before.abs(), speed_after.abs()], axis=1).max(axis=1)
@@ -52,7 +50,13 @@ def lhipa(eye_df: pd.DataFrame, wavelet_type: str = "sym16") -> float:
     :param wavelet_type: The type of wavelet to use for decomposition.
     :return lhipa_value: The computed LHIPA value.
     """
-    data = eye_df["pupil_diameter_px"].to_numpy().copy()
+    pupil_column = [c for c in eye_df.columns if "pupil_diameter" in c]
+    if len(pupil_column) != 1:
+        print(
+            "Error: The input DataFrame must contain exactly one column with 'pupil_diameter' in its name."
+        )
+        return np.nan
+    data = eye_df[pupil_column[0]].to_numpy().copy()
     w = pywt.Wavelet(wavelet_type)
     max_level = pywt.dwt_max_level(len(data), w.dec_len)
 
@@ -128,7 +132,13 @@ def ripa2(
         )
 
     # 2- Get the filtered samples that fit the window length (centered)
-    pupil_data = window_df["pupil_diameter_px"].to_numpy()
+    pupil_column = [c for c in window_df.columns if "pupil_diameter" in c]
+    if len(pupil_column) != 1:
+        print(
+            "Error: The input DataFrame must contain exactly one column with 'pupil_diameter' in its name."
+        )
+        return np.nan
+    pupil_data = window_df[pupil_column[0]].to_numpy()
     VLF_filtered = np.convolve(pupil_data, VLF_COEFFS, mode="valid")
     LF_filtered = np.convolve(pupil_data, LF_COEFFS, mode="valid")
 
