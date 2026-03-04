@@ -45,7 +45,8 @@ class PyReceiverBase:
             listener (Listener): A callable to receive a list of Dataclass instances.
         """
         with self._lock:
-            self._listeners.append(listener)
+            if listener not in self._listeners:
+                self._listeners.append(listener)
 
     def clear_listeners(self) -> None:
         """
