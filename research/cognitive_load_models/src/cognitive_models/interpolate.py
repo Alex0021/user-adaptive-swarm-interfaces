@@ -18,15 +18,15 @@ def merge_colet_eye_data(
     """
     # First keep only the best pupil meausurement for each timestamp_sec
     pupil_df_left = raw_eye_df[
-        (raw_eye_df["eye_id"] == 0) & raw_eye_df["diameter_mm"].isna()
+        (raw_eye_df["eye_id"] == 0) & ~raw_eye_df["diameter_mm"].isna()
     ]
     pupil_df_right = raw_eye_df[
-        (raw_eye_df["eye_id"] == 1) & raw_eye_df["diameter_mm"].isna()
+        (raw_eye_df["eye_id"] == 1) & ~raw_eye_df["diameter_mm"].isna()
     ]
     # Keep only the one that has generally the best confidence value overall
-    num_good_left = (pupil_df_left["confidence_px"] > PUPIL_CONFIDENCE_THRESHOLD).sum()
+    num_good_left = (pupil_df_left["confidence_mm"] > PUPIL_CONFIDENCE_THRESHOLD).sum()
     num_good_right = (
-        pupil_df_right["confidence_px"] > PUPIL_CONFIDENCE_THRESHOLD
+        pupil_df_right["confidence_mm"] > PUPIL_CONFIDENCE_THRESHOLD
     ).sum()
     if num_good_left > num_good_right:
         pupil_df_best = pupil_df_left
@@ -37,15 +37,15 @@ def merge_colet_eye_data(
         columns=[
             c
             for c in pupil_df_best.columns
-            if c.startswith("confidence_mm")
-            or c.startswith("diameter_mm")
-            or c.startswith("eye_id_")
+            if c.startswith("confidence_px")
+            or c.startswith("diameter_px")
+            or c.startswith("eye_id")
         ],
         inplace=True,
     )
     # Change confidence to 0 for values out of range
-    pupil_df_best.loc[pupil_df_best["diameter_px"] < 15, "confidence_px"] = 0
-    pupil_df_best.loc[pupil_df_best["diameter_px"] > 100, "confidence_px"] = 0
+    pupil_df_best.loc[pupil_df_best["diameter_mm"] < 1.5, "confidence_mm"] = 0
+    pupil_df_best.loc[pupil_df_best["diameter_mm"] > 9.0, "confidence_mm"] = 0
 
     # Merge the gaze and pupil dataframes on the timestamp_sec column
     pupil_start_time = raw_gaze_df["gaze_timestamp"].min()
@@ -91,10 +91,17 @@ def merge_colet_eye_data(
     ].dt.total_seconds()  # Convert back to seconds
     # Only keep thw worse confidence between gaze and pupil
     merged_df_clean["confidence"] = merged_df_clean[
-        ["confidence_px", "confidence"]
+        ["confidence_mm", "confidence"]
     ].min(axis=1)
-    merged_df_clean.drop(columns=["confidence_px"], inplace=True)
-    merged_df_clean.rename(columns={"diameter_px": "pupil_diameter_px"}, inplace=True)
+    merged_df_clean.drop(columns=["confidence_mm"], inplace=True)
+    merged_df_clean.rename(
+        columns={
+            "diameter_mm": "pupil_diameter",
+            "norm_pos_x": "gaze_point_screen_x",
+            "norm_pos_y": "gaze_point_screen_y",
+        },
+        inplace=True,
+    )
 
     print(
         f"Final merged and resampled dataset has {merged_df_clean.shape[0]} records at 60 Hz"
@@ -106,7 +113,7 @@ def merge_colet_eye_data(
 def interpolate_pupil_data(
     eye_df: pd.DataFrame,
     gaps_df: pd.DataFrame,
-    column: str = "pupil_diameter_px",
+    column: str = "pupil_diameter",
     max_gap: int = 300,
 ) -> pd.DataFrame:
     return interpolate_eye_data(eye_df, gaps_df, columns=[column], max_gap=max_gap)
@@ -139,7 +146,7 @@ def interpolate_eye_data(
     return interpolated_df
 
 
-def interpolate_gaze_angle(
+def interpolate_gaze(
     eye_df: pd.DataFrame,
     gaps_df: pd.DataFrame,
     columns: list[str] = ["gaze_angle_delta_deg"],

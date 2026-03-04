@@ -1,8 +1,8 @@
 import glob
-import tqdm
 from pathlib import Path
 
 import pandas as pd
+import tqdm
 
 from cognitive_models.pupil_utils import detect_outliers
 
@@ -12,9 +12,7 @@ from .gaze_utils import (
     detect_gaps_and_blinks,
 )
 from .interpolate import (
-    interpolate_blinks,
-    interpolate_gaze_angle,
-    interpolate_missing_gaze,
+    interpolate_gaze,
     interpolate_pupil_data,
     merge_colet_eye_data,
 )
@@ -27,7 +25,7 @@ PUPIL_FILE_PATTERN = "*pupil.csv"
 BLINK_FILE_PATTERN = "*blinks.csv"
 ANNOTATION_FILENAME = "annotations.csv"
 
-CONFIDENCE_THRESHOLD = 0.95
+CONFIDENCE_THRESHOLD = 0.5
 DURATION_THRESHOLD = 75 / 1000  # 75 ms in seconds
 INTERPOLATION_THRESHOLD = 300 / 1000
 
@@ -146,7 +144,7 @@ def load_nback_dataset(
                     )
                     eye_df["timestamp"] = pd.to_timedelta(eye_df["timestamp"], unit="s")
                     eye_df.set_index("timestamp", inplace=True)
-                    eye_df = eye_df.resample(f"{1000/f_des:.2f}ms").interpolate(
+                    eye_df = eye_df.resample(f"{1000 / f_des:.2f}ms").interpolate(
                         method="time"
                     )  # Resample at desired frequency
                     eye_df.reset_index(inplace=True)
@@ -242,7 +240,9 @@ def preprocess_colet_data(
     """
     eye_df = eye_df.copy()
     # Identify blinks and low confidence gaps
-    gaps_to_fill_df = detect_gaps_and_blinks(eye_df)
+    gaps_to_fill_df = detect_gaps_and_blinks(
+        eye_df, confidence_threshold=CONFIDENCE_THRESHOLD
+    )
 
     if verbose:
         print(
@@ -268,7 +268,7 @@ def preprocess_colet_data(
         print(f"Removed {n_to_remove} low confidence samples from the window.")
 
     # Remove outliers
-    outliers_df = detect_outliers(eye_df, column="pupil_diameter_px", n_multiplier=10)
+    outliers_df = detect_outliers(eye_df, column="pupil_diameter", n_multiplier=10)
     eye_df = eye_df[~eye_df["timestamp_sec"].isin(outliers_df["timestamp_sec"])]
     if verbose:
         print(
@@ -300,13 +300,13 @@ def preprocess_colet_data(
     pupil_df_inter = interpolate_pupil_data(
         eye_df,
         gaps_to_fill_df,
-        column="pupil_diameter_px",
+        column="pupil_diameter",
         max_gap=INTERPOLATION_THRESHOLD,
     )
-    gaze_df_inter = interpolate_gaze_angle(
+    gaze_df_inter = interpolate_gaze(
         eye_df,
         gaps_to_fill_df,
-        columns=["gaze_angle_delta_deg", "norm_pos_x", "norm_pos_y"],
+        columns=["gaze_angle_delta_deg", "gaze_point_screen_x", "gaze_point_screen_y"],
         max_gap=INTERPOLATION_THRESHOLD,
     )
 
@@ -414,7 +414,7 @@ def preprocess_nback_data(
         column="pupil_diameter_mm",
         max_gap=INTERPOLATION_THRESHOLD,
     )
-    gaze_df_inter = interpolate_gaze_angle(
+    gaze_df_inter = interpolate_gaze(
         eye_df,
         gaps_to_fill_df,
         columns=["gaze_angle_delta_deg", "point_screen_x", "point_screen_y"],

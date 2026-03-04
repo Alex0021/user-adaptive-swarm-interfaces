@@ -3,70 +3,67 @@ from typing import Any
 
 import pandas as pd
 
-from .gaze_utils import calculate_fixations_saccades
+from .gaze_utils import (
+    calculate_fixations_saccades_idt,
+    calculate_fixations_saccades_ivt,
+)
 from .pupil_utils import lhipa, ripa2
 
 
 def extract_window_features(
-    window_df: pd.DataFrame,
-    window_gaze_df: pd.DataFrame,
     window_pupil_df: pd.DataFrame,
+    fixations_df: pd.DataFrame,
+    saccades_df: pd.DataFrame,
     gaps_df: pd.DataFrame,
-    ivt_threshold: int,
-    min_fixation_duration: int,
-    verbose: bool = True,
 ) -> dict[str, Any]:
     """
-    Extracts features from the eye-tracking window data, including fixations, saccades, and blinks.
+    Extracts features from the eye-tracking window data, including fixations_df, saccades_df, and blinks.
 
-    :param window_df:With columns 'timestamp_sec', 'confidence', 'blink', 'gaze_angle_delta_deg', and 'gaze_angular_velocity'.
-    :param window_gaze_df: DataFrame containing gaze data for the window.
     :param window_pupil_df: DataFrame containing pupil data for the window.
+    :param fixations_df: DataFrame containing fixations_df data for the window.
+    :param saccades_df: DataFrame containing saccades_df data for the window.
     :param gaps_df: DataFrame containing gap information with columns 'start_timestamp', 'stop_timestamp', and 'is_blink'.
-    :param ivt_threshold: The velocity threshold (in deg/s) for identifying saccades.
+    :param ivt_threshold: The velocity threshold (in deg/s) for identifying saccades_df.
     :param min_fixation_duration: The minimum duration (in milliseconds) for a fixation to be considered valid.
     :return features: A dictionary containing extracted features.
     """
-    # 1- Extract fixations and saccades
-    _, fixations, saccades = calculate_fixations_saccades(
-        window_gaze_df, gaps_df, ivt_threshold, min_fixation_duration, verbose=verbose
-    )
-
     features = defaultdict(lambda: 0)
-    # 2- Fixations: count, duration mean/max/min/std
-    features["fixations_count"] = len(fixations)
-    if not fixations.empty:
-        features["fixations_duration_mean"] = fixations["duration_ms"].mean()
-        features["fixations_duration_max"] = fixations["duration_ms"].max()
-        features["fixations_duration_min"] = fixations["duration_ms"].min()
-        features["fixations_duration_skew"] = fixations["duration_ms"].skew()
-        features["fixations_duration_kurt"] = fixations["duration_ms"].kurtosis()
+    # 1- Fixations_df: count, duration mean/max/min/std
+    features["fixations_count"] = len(fixations_df)
+    if not fixations_df.empty:
+        features["fixations_duration_mean"] = fixations_df["duration_ms"].mean()
+        features["fixations_duration_max"] = fixations_df["duration_ms"].max()
+        features["fixations_duration_min"] = fixations_df["duration_ms"].min()
+        features["fixations_duration_skew"] = fixations_df["duration_ms"].skew()
+        features["fixations_duration_kurt"] = fixations_df["duration_ms"].kurtosis()
         features["fixations_duration_std"] = (
-            fixations["duration_ms"].std() if len(fixations) > 1 else 0
+            fixations_df["duration_ms"].std() if len(fixations_df) > 1 else 0
         )
 
-    # 3- Saccades: count, peak_velocity, amplitude mean/max/min/std, duration mean/max/min/std
-    features["saccades_count"] = len(saccades)
-    if not saccades.empty:
-        features["saccades_peak_velocity_min"] = saccades["peak_velocity"].min()
-        features["saccades_peak_velocity_max"] = saccades["peak_velocity"].max()
-        features["saccades_peak_velocity_skew"] = saccades["peak_velocity"].skew()
-        features["saccades_peak_velocity_kurt"] = saccades["peak_velocity"].kurtosis()
-        features["saccades_amplitude_mean"] = saccades["amplitude_deg"].mean()
-        features["saccades_amplitude_max"] = saccades["amplitude_deg"].max()
-        features["saccades_amplitude_min"] = saccades["amplitude_deg"].min()
-        features["saccades_amplitude_skew"] = saccades["amplitude_deg"].skew()
-        features["saccades_amplitude_kurt"] = saccades["amplitude_deg"].kurtosis()
+    # 2- Saccades_df: count, peak_velocity, amplitude mean/max/min/std, duration mean/max/min/std
+    features["saccades_count"] = len(saccades_df)
+    if not saccades_df.empty:
+        features["saccades_peak_velocity_min"] = saccades_df["peak_velocity"].min()
+        features["saccades_peak_velocity_max"] = saccades_df["peak_velocity"].max()
+        features["saccades_peak_velocity_skew"] = saccades_df["peak_velocity"].skew()
+        features["saccades_peak_velocity_kurt"] = saccades_df[
+            "peak_velocity"
+        ].kurtosis()
+        features["saccades_amplitude_mean"] = saccades_df["amplitude"].mean()
+        features["saccades_amplitude_max"] = saccades_df["amplitude"].max()
+        features["saccades_amplitude_min"] = saccades_df["amplitude"].min()
+        features["saccades_amplitude_skew"] = saccades_df["amplitude"].skew()
+        features["saccades_amplitude_kurt"] = saccades_df["amplitude"].kurtosis()
         features["saccades_amplitude_std"] = (
-            saccades["amplitude_deg"].std() if len(saccades) > 1 else 0
+            saccades_df["amplitude"].std() if len(saccades_df) > 1 else 0
         )
-        features["saccades_duration_mean"] = saccades["duration_ms"].mean()
-        features["saccades_duration_max"] = saccades["duration_ms"].max()
-        features["saccades_duration_min"] = saccades["duration_ms"].min()
-        features["saccades_duration_skew"] = saccades["duration_ms"].skew()
-        features["saccades_duration_kurt"] = saccades["duration_ms"].kurtosis()
+        features["saccades_duration_mean"] = saccades_df["duration_ms"].mean()
+        features["saccades_duration_max"] = saccades_df["duration_ms"].max()
+        features["saccades_duration_min"] = saccades_df["duration_ms"].min()
+        features["saccades_duration_skew"] = saccades_df["duration_ms"].skew()
+        features["saccades_duration_kurt"] = saccades_df["duration_ms"].kurtosis()
         features["saccades_duration_std"] = (
-            saccades["duration_ms"].std() if len(saccades) > 1 else 0
+            saccades_df["duration_ms"].std() if len(saccades_df) > 1 else 0
         )
 
     # 4- Blinks: count, duration mean
