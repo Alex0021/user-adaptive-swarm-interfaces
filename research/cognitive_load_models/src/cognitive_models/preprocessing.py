@@ -427,8 +427,9 @@ def preprocess_nback_data(
     # Rename some columns to be consistent with Colet dataset
     gaze_df_inter.rename(
         columns={
-            "point_screen_x": "norm_pos_x",
-            "point_screen_y": "norm_pos_y",
+            "point_screen_x": "gaze_point_screen_x",
+            "point_screen_y": "gaze_point_screen_y",
+            "pupil_diameter_mm": "pupil_diameter",
         },
         inplace=True,
     )

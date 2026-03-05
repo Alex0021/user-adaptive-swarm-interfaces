@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 import pywt
+from numpy.lib.stride_tricks import sliding_window_view
+from numpy.typing import NDArray
 from scipy.signal import savgol_coeffs
 
 EPSILON = 1e-10
@@ -106,8 +108,12 @@ def modmax(coeffs):
 
 
 def ripa2(
-    window_df: pd.DataFrame, VLF: tuple[int, int], LF: tuple[int, int], D: int = 1
-) -> float:
+    window_df: pd.DataFrame,
+    VLF: tuple[int, int],
+    LF: tuple[int, int],
+    D: int = 1,
+    n_out: int = 1,
+) -> NDArray[np.float_] | float:
     """
     Compute the RIPA2 value which is the newest IPA measure to be used online.
 
@@ -117,9 +123,12 @@ def ripa2(
     :param (M_VLF,N_VLF): The filter length (M) and polynomial order (N) for the VLF filter.
     :param (M_LF,N_LF): The filter length (M) and polynomial order (N) for the LF filter.
     :param D: The order of the derivative to compute (default is 1 for first derivative).
+    :param n_out: The number of RIPA2 values to consider within the window.
     :return ripa2_mean: The computed RIPA2 value (mean over the valid window).
     """
     global LF_COEFFS, VLF_COEFFS
+
+    assert n_out >= 1, "n_out must be at least 1"
     # 1- Compute the S-G filter coefficients if needed
     if LF_COEFFS is None or VLF_COEFFS is None:
         VLF_window_length = VLF[0] * 2 + 1
@@ -154,5 +163,15 @@ def ripa2(
         return np.nan
     ripa2 = np.clip(LF_filtered**2 - VLF_filtered**2, 0, 1.5)
 
-    # 4- For now, return the mean value of the RIPA2
+    # 4- Return n_out values of RIPA2
+    if n_out > 1:
+        # Divide into equally spaced segments
+        segment_length = len(ripa2) // n_out
+        if segment_length == 0:
+            return np.mean(ripa2)
+        ripa2_segments = sliding_window_view(ripa2, window_shape=segment_length)[
+            ::segment_length
+        ]
+        return np.array([np.mean(segment) for segment in ripa2_segments])
+
     return np.mean(ripa2)

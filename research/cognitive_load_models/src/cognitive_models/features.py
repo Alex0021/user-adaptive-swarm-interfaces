@@ -79,6 +79,12 @@ def extract_window_features(
 
     # 5- Pupil related features
     features["pupil_lhipa"] = lhipa(window_pupil_df, wavelet_type="sym8")
-    features["pupil_ripa2"] = ripa2(window_pupil_df, VLF=(98, 2), LF=(13, 4), D=1)
+    # features["pupil_ripa2"] = ripa2(window_pupil_df, VLF=(98, 2), LF=(13, 4), D=1)
+    ripa_values = ripa2(window_pupil_df, VLF=(98, 2), LF=(13, 4), D=1, n_out=1)
+    if isinstance(ripa_values, float):
+        features["pupil_ripa2_1"] = ripa_values
+    else:
+        for i, ripa_value in enumerate(ripa_values):
+            features[f"pupil_ripa2_{i + 1}"] = ripa_value
 
     return features
