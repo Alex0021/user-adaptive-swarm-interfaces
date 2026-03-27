@@ -29,7 +29,12 @@ from workload_inference.data_structures import (
 )
 from workload_inference.py_receiver import SMReceiver, SMReceiverCircularBuffer
 from workload_inference.utilities import ExperimentDataWriter
-from workload_inference.visualize import DroneDataCanvas, GazeDataCanvas
+from workload_inference.inference import InferenceSettings, WorkloadInferenceEngine
+from workload_inference.visualize import (
+    DroneDataCanvas,
+    GazeDataCanvas,
+    WorkloadDisplayWidget,
+)
 
 # Experiment specific constants
 CONFIG_FILE_NAME = "experiment.yaml"
@@ -515,17 +520,47 @@ class ExperimentManagerWindow(QMainWindow):
             num_drones=DRONE_COUNT,
             plotting_window=200,
         )
+        # Workload inference engine + display widget
+        model_path = self.experiment_manager.experiment_config.get(
+            "workload_model_path", None
+        )
+        settings_path = self.experiment_manager.experiment_config.get(
+            "workload_settings_path", None
+        )
+        if settings_path is not None:
+            try:
+                settings = InferenceSettings.from_yaml(settings_path)
+            except FileNotFoundError:
+                logger.warning(
+                    "Workload settings file '%s' not found, using defaults",
+                    settings_path,
+                )
+                settings = InferenceSettings()
+        else:
+            settings = InferenceSettings()
+        self._workload_engine = WorkloadInferenceEngine(
+            model_path=model_path,
+            settings=settings,
+        )
+        self._workload_display = WorkloadDisplayWidget(
+            parent=self, engine=self._workload_engine
+        )
         # Experiment control and status widgets
         self._experiment_management_widget = QWidget()
         self._experiment_management_layout = QGridLayout()
         self._experiment_management_widget.setLayout(self._experiment_management_layout)
         self._layout.addWidget(self._experiment_management_widget, 0)
-        # Canvas layout for gaze and drone visualizers side by side
+        # Canvas layout: gaze on left, drone+workload stacked on right
         self._canvas_widget = QWidget()
         self._canvas_layout = QHBoxLayout()
         self._canvas_widget.setLayout(self._canvas_layout)
         self._canvas_layout.addWidget(self._gaze_visualizer, 1)
-        self._canvas_layout.addWidget(self._drone_visualizer, 1)
+        right_pane = QWidget()
+        right_pane_layout = QVBoxLayout()
+        right_pane_layout.addWidget(self._drone_visualizer, 1)
+        right_pane_layout.addWidget(self._workload_display, 0)
+        right_pane.setLayout(right_pane_layout)
+        self._canvas_layout.addWidget(right_pane, 1)
         self._layout.addWidget(self._canvas_widget, 1)
 
         # Title
@@ -803,6 +838,9 @@ class ExperimentManagerWindow(QMainWindow):
         if self.experiment_manager.gaze_receiver is not None:
             self.experiment_manager.gaze_receiver.register_listener(
                 self._gaze_visualizer.datas_callback
+            )
+            self.experiment_manager.gaze_receiver.register_listener(
+                self._workload_engine.gaze_datas_callback
             )
         else:
             logger.warning(

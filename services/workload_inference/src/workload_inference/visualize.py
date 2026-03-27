@@ -1,5 +1,10 @@
+import contextlib
 import logging
 import os
+
+# Import torch before PyQt6 to avoid DLL conflicts on Windows
+with contextlib.suppress(ImportError):
+    import torch  # noqa: F401
 
 os.environ["QT_API"] = "PyQt6"  # Ensure PyQt6 is used for matplotlib backend
 import threading
@@ -18,10 +23,23 @@ from matplotlib.lines import Line2D
 from matplotlib.widgets import Button, Slider
 from numpy.typing import NDArray
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtWidgets import QApplication, QHBoxLayout, QMainWindow, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QApplication,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QProgressBar,
+    QVBoxLayout,
+    QWidget,
+)
 
 from workload_inference.constants import DATA_DIR
 from workload_inference.data_structures import DroneData, GazeData, Listener
+from workload_inference.inference import (
+    WORKLOAD_COLORS,
+    WORKLOAD_LABELS,
+    WorkloadInferenceEngine,
+)
 
 SPLINE_TRAJECTORY_FILE = DATA_DIR / "spline_trajectory.csv"
 DRONE_COLORS = [
@@ -69,7 +87,7 @@ class DroneDataCanvas(FigureCanvas):
         self._timer.timeout.connect(self._update_all)
 
         # Initialize plot
-        self.ax = self.fig.add_subplot(1, 1, 1, aspect="equal")
+        self.ax = self.fig.add_subplot(1, 1, 1, adjustable="box")
 
         # Load spline trajectory for background track
         self._spline_x: NDArray[np.float64] | None = None
@@ -108,7 +126,6 @@ class DroneDataCanvas(FigureCanvas):
         self._blit_ready = False
 
         self._init_plots()
-        self.fig.tight_layout()
 
         # Blitting hooks
         self.mpl_connect("draw_event", self._on_draw)
@@ -131,14 +148,14 @@ class DroneDataCanvas(FigureCanvas):
     def _init_plots(self):
         """Initialize plot styling and labels"""
         self.ax.set_title("Drone Positions (Top-Down)")
-        self.ax.set_xlabel("X")
-        self.ax.set_ylabel("Z")
+        self.ax.set_xlabel("Z")
+        self.ax.set_ylabel("X")
 
         # Draw spline trajectory as background
         if self._spline_x is not None and self._spline_z is not None:
             self.ax.plot(
-                self._spline_x,
                 self._spline_z,
+                self._spline_x,
                 color="lightgray",
                 linewidth=2,
                 linestyle="--",
@@ -148,8 +165,9 @@ class DroneDataCanvas(FigureCanvas):
             # Auto-fit axis limits from trajectory with padding
             pad_x = (self._spline_x.max() - self._spline_x.min()) * 0.1
             pad_z = (self._spline_z.max() - self._spline_z.min()) * 0.1
-            self.ax.set_xlim(self._spline_x.min() - pad_x, self._spline_x.max() + pad_x)
-            self.ax.set_ylim(self._spline_z.min() - pad_z, self._spline_z.max() + pad_z)
+            self.ax.set_ylim(self._spline_x.min() - pad_x, self._spline_x.max() + pad_x)
+            # Invert X-axis for clockwise motion from left start
+            self.ax.set_xlim(self._spline_z.max() + pad_z, self._spline_z.min() - pad_z)
 
     def _init_blit(self):
         """Initialize blitting by caching the background"""
@@ -287,8 +305,8 @@ class DroneDataCanvas(FigureCanvas):
             drone_id = int(drone_data.id)
             if 0 <= drone_id < self.num_drones:
                 wi = self._buf_idx[drone_id]
-                self._buffers[drone_id, wi, 0] = float(drone_data.position_x)
-                self._buffers[drone_id, wi, 1] = float(drone_data.position_z)
+                self._buffers[drone_id, wi, 0] = float(drone_data.position_z)
+                self._buffers[drone_id, wi, 1] = float(drone_data.position_x)
                 self._buf_idx[drone_id] = (wi + 1) % self.window_size
                 if self._buf_lens[drone_id] < self.window_size:
                     self._buf_lens[drone_id] += 1
@@ -318,7 +336,7 @@ class GazeDataCanvas(FigureCanvas):
             plotting_window (int): Number of data points to display in the plots.
             update_freq (int): Frequency of plot updates in Hz.
         """
-        self.fig = Figure(figsize=(8, 6), dpi=100)
+        self.fig = Figure(figsize=(8, 8), dpi=100)
         super().__init__(self.fig)
         self.parent = parent
         self.screen_width = screen_width
@@ -331,9 +349,9 @@ class GazeDataCanvas(FigureCanvas):
 
         # Initalize 3 plots
         ar = self.screen_height / self.screen_width
-        self.ax_gaze = self.fig.add_subplot(3, 2, (1, 4), aspect=ar, adjustable="box")
-        self.ax_validity = self.fig.add_subplot(3, 2, 5)
-        self.ax_pupil = self.fig.add_subplot(3, 2, 6)
+        self.ax_gaze = self.fig.add_subplot(4, 1, (1, 2), aspect=ar, adjustable="box")
+        self.ax_validity = self.fig.add_subplot(4, 1, 3, adjustable="box")
+        self.ax_pupil = self.fig.add_subplot(4, 1, 4, adjustable="box")
 
         # Pre-allocated ring buffers (avoids deque -> np.array conversion each frame)
         self._gaze_buf = np.full((plotting_window, 2), np.nan)
@@ -389,7 +407,7 @@ class GazeDataCanvas(FigureCanvas):
         self.mpl_connect("draw_event", self._on_draw)
         self.mpl_connect("resize_event", self._on_resize)
         self._init_blit()
-        self.fig.tight_layout()
+        self.fig.tight_layout(pad=2.0)
 
         self._timer.start(1000 // self.update_freq)
 
@@ -610,6 +628,259 @@ class GazeDataCanvas(FigureCanvas):
                 self._buf_len += 1
 
 
+class WorkloadDisplayWidget(QWidget):
+    """Widget displaying real-time cognitive workload estimation.
+
+    Layout:
+        Row 1: History timeline spanning full width (last 30 s,
+               showing both raw and filtered predictions).
+        Row 2: Compact class label | probability bars side-by-side.
+
+    Thread safety:
+        The engine listener ``_on_workload_data`` is called from the
+        inference background thread, so it only stores data into plain
+        Python lists.  A QTimer on the **main/GUI thread** periodically
+        calls ``_refresh_ui`` to read that data and update Qt widgets /
+        matplotlib, which is the only safe way to touch the GUI.
+    """
+
+    HISTORY_WINDOW_SEC = 30.0  # fixed time window for the history plot
+    UI_REFRESH_MS = 250  # how often the GUI timer fires
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        engine: WorkloadInferenceEngine | None = None,
+    ):
+        super().__init__(parent)
+        self._engine = engine
+
+        # --- Data written by the inference thread (no Qt access here) ---
+        import threading
+
+        self._data_lock = threading.Lock()
+        self._history_raw: list[int] = []
+        self._history_filtered: list[int] = []
+        self._history_timestamps: list[float] = []
+        self._latest_filtered_class: int = -1
+        self._latest_probabilities: np.ndarray = np.zeros(3)
+        self._dirty = False  # flag: new data since last UI refresh
+
+        self._init_ui()
+
+        # GUI-thread timer for safe UI updates
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.timeout.connect(self._refresh_ui)
+        self._refresh_timer.start(self.UI_REFRESH_MS)
+
+        if self._engine is not None:
+            self._engine.register_listener(self._on_workload_data)
+
+    def set_engine(self, engine: WorkloadInferenceEngine) -> None:
+        """Attach (or replace) the inference engine."""
+        self._engine = engine
+        engine.register_listener(self._on_workload_data)
+
+    # ------------------------------------------------------------------
+    # UI setup
+    # ------------------------------------------------------------------
+
+    def _init_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(4, 4, 4, 4)
+        root.setSpacing(4)
+
+        # --- Row 1: history timeline (full width) ---
+        self._history_fig = Figure(figsize=(6, 1.4), dpi=100)
+        self._history_ax = self._history_fig.add_subplot(1, 1, 1)
+        self._history_canvas = FigureCanvas(self._history_fig)
+        self._history_canvas.setMinimumHeight(90)
+        root.addWidget(self._history_canvas, 1)
+        self._init_history_plot()
+        self._history_fig.tight_layout(pad=0.8)
+
+        # --- Row 2: class label + probability bars ---
+        bottom_row = QHBoxLayout()
+        bottom_row.setSpacing(8)
+
+        # Compact workload label
+        label_col = QVBoxLayout()
+        label_col.setContentsMargins(0, 0, 0, 0)
+        self._workload_label = QLabel("N/A")
+        self._workload_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._workload_label.setStyleSheet(
+            "font-size: 18px; font-weight: bold; padding: 4px; "
+            "border: 2px solid gray; border-radius: 4px;"
+        )
+        self._workload_label.setFixedWidth(80)
+        label_col.addWidget(self._workload_label)
+        self._info_label = QLabel("Inferences: 0")
+        self._info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._info_label.setStyleSheet("font-size: 9px; color: gray;")
+        label_col.addWidget(self._info_label)
+        bottom_row.addLayout(label_col, 0)
+
+        # Probability bars
+        bars_col = QVBoxLayout()
+        bars_col.setSpacing(2)
+        self._prob_bars: list[QProgressBar] = []
+        self._prob_labels: list[QLabel] = []
+        self._prob_percents: list[QLabel] = []
+
+        for cls_idx in range(3):
+            bar_row = QHBoxLayout()
+            bar_row.setSpacing(4)
+
+            label = QLabel(WORKLOAD_LABELS[cls_idx])
+            label.setMinimumWidth(36)
+            label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+            label.setStyleSheet("font-size: 9px;")
+            bar_row.addWidget(label, 0)
+            self._prob_labels.append(label)
+
+            bar = QProgressBar()
+            bar.setRange(0, 100)
+            bar.setValue(0)
+            bar.setFormat("")
+            color = WORKLOAD_COLORS[cls_idx]
+            bar.setStyleSheet(
+                f"QProgressBar::chunk {{ background-color: {color}; }}"
+            )
+            bar.setFixedHeight(16)
+            bar_row.addWidget(bar, 1)
+            self._prob_bars.append(bar)
+
+            percent = QLabel("0%")
+            percent.setMinimumWidth(28)
+            percent.setAlignment(Qt.AlignmentFlag.AlignRight)
+            percent.setStyleSheet("font-size: 9px; font-weight: bold;")
+            bar_row.addWidget(percent, 0)
+            self._prob_percents.append(percent)
+
+            bars_col.addLayout(bar_row)
+
+        bottom_row.addLayout(bars_col, 1)
+        root.addLayout(bottom_row, 0)
+
+        self.setMinimumHeight(140)
+        self._add_mockup_data()
+
+    def _init_history_plot(self):
+        ax = self._history_ax
+        ax.set_title("Prediction history", fontsize=9)
+        class_labels = {k: v for k, v in WORKLOAD_LABELS.items() if k >= 0}
+        ax.set_ylim(-0.5, len(class_labels) - 0.5)
+        ax.set_yticks(list(class_labels.keys()))
+        ax.set_yticklabels(class_labels.values(), fontsize=7)
+        ax.set_xlabel("Time (s)", fontsize=7)
+        ax.tick_params(axis="x", labelsize=7)
+        ax.set_xlim(-self.HISTORY_WINDOW_SEC, 0)
+
+        (self._line_raw,) = ax.plot(
+            [], [],
+            "o", markersize=3, alpha=0.4, label="Raw", color="steelblue",
+        )
+        (self._line_filtered,) = ax.plot(
+            [], [],
+            "-", linewidth=2, label="Filtered", color="darkorange",
+        )
+        ax.legend(fontsize=6, loc="upper left")
+
+    def _add_mockup_data(self):
+        now = time.time()
+        for i in range(15):
+            raw_cls = (i // 5) % 3
+            filt_cls = max(0, min(2, raw_cls))
+            self._history_raw.append(raw_cls)
+            self._history_filtered.append(filt_cls)
+            self._history_timestamps.append(now - (15 - i) * 1.0)
+        self._latest_filtered_class = 1
+        self._latest_probabilities = np.array([0.2, 0.6, 0.2])
+        self._dirty = True
+        # Immediately paint so the mockup is visible on startup
+        self._refresh_ui()
+
+    # ------------------------------------------------------------------
+    # Inference thread callback (data only, NO Qt access)
+    # ------------------------------------------------------------------
+
+    def _on_workload_data(
+        self,
+        raw_class: int,
+        filtered_class: int,
+        probabilities: np.ndarray,
+    ) -> None:
+        """Called from the inference **background thread**.
+
+        Only touches plain Python/numpy data under a lock.
+        The QTimer ``_refresh_ui`` picks it up on the GUI thread.
+        """
+        now = time.time()
+        with self._data_lock:
+            self._history_raw.append(raw_class)
+            self._history_filtered.append(filtered_class)
+            self._history_timestamps.append(now)
+
+            # Trim to the time window
+            cutoff = now - self.HISTORY_WINDOW_SEC
+            while (
+                self._history_timestamps
+                and self._history_timestamps[0] < cutoff
+            ):
+                self._history_timestamps.pop(0)
+                self._history_raw.pop(0)
+                self._history_filtered.pop(0)
+
+            self._latest_filtered_class = filtered_class
+            self._latest_probabilities = probabilities.copy()
+            self._dirty = True
+
+    # ------------------------------------------------------------------
+    # GUI-thread refresh (called by QTimer, safe to touch widgets)
+    # ------------------------------------------------------------------
+
+    def _refresh_ui(self) -> None:
+        """Read latest data and update all Qt widgets + matplotlib."""
+        with self._data_lock:
+            if not self._dirty:
+                return
+            self._dirty = False
+            # Snapshot the data while holding the lock
+            timestamps = list(self._history_timestamps)
+            raw = list(self._history_raw)
+            filtered = list(self._history_filtered)
+            filt_class = self._latest_filtered_class
+            proba = self._latest_probabilities.copy()
+
+        # -- Update class label --
+        label = WORKLOAD_LABELS.get(filt_class, "???")
+        color = WORKLOAD_COLORS.get(filt_class, "gray")
+        self._workload_label.setText(label)
+        self._workload_label.setStyleSheet(
+            f"font-size: 18px; font-weight: bold; padding: 4px; "
+            f"border: 2px solid {color}; border-radius: 4px; color: {color};"
+        )
+
+        # -- Update probability bars --
+        for i, (bar, pct_lbl) in enumerate(
+            zip(self._prob_bars, self._prob_percents, strict=True)
+        ):
+            pct = int(proba[i] * 100) if i < len(proba) else 0
+            bar.setValue(pct)
+            pct_lbl.setText(f"{pct}%")
+
+        # -- Update history plot --
+        if timestamps:
+            now = timestamps[-1]
+            x = [t - now for t in timestamps]
+            self._line_raw.set_data(x, raw)
+            self._line_filtered.set_data(x, filtered)
+            self._history_ax.set_xlim(-self.HISTORY_WINDOW_SEC, 0)
+            self._history_canvas.draw_idle()
+
+        self._info_label.setText(f"Inferences: {len(raw)}")
+
+
 class ReplaySlider:
     """Placeholder for a replay slider widget to scrub through recorded data"""
 
@@ -760,9 +1031,7 @@ class ReplayData:
         # Estimate source data rate from median timestamp delta
         source_dt = df[timestamp_col].diff().median()
         target_dt = 1000.0 / self._sampling_rate
-        needs_interpolation = (
-            method == "interpolate" or target_dt < source_dt * 0.9
-        )
+        needs_interpolation = method == "interpolate" or target_dt < source_dt * 0.9
 
         df = df.set_index(timestamp_col)
 
@@ -771,9 +1040,7 @@ class ReplayData:
             result = {}
             for col in df.columns:
                 if pd.api.types.is_numeric_dtype(df[col]):
-                    result[col] = np.interp(
-                        self.timestamps, src_ts, df[col].values
-                    )
+                    result[col] = np.interp(self.timestamps, src_ts, df[col].values)
                 else:
                     # Non-numeric columns: forward-fill via nearest
                     idx = np.searchsorted(src_ts, self.timestamps).clip(
@@ -897,25 +1164,44 @@ class ReplayData:
 
 
 class ExperimentDataReplayWindow(QMainWindow):
-    """Placeholder for a window that would allow replaying recorded experiment
-    data with the visualizer and slider"""
+    """Window for replaying recorded experiment data with visualizers,
+    slider controls, and real-time workload inference."""
 
     def __init__(
-        self, parent: QMainWindow | None = None, trial_folder: Path | None = None
+        self,
+        parent: QMainWindow | None = None,
+        trial_folder: Path | None = None,
+        model_path: str | Path | None = None,
     ):
         super().__init__(parent)
         self.setWindowTitle("Experiment Data Replay")
-        self.setGeometry(150, 150, 1400, 800)
+        self.setGeometry(150, 150, 1600, 800)
 
         central_widget = QWidget()
         layout = QVBoxLayout(central_widget)
 
         self.gaze_visualizer = GazeDataCanvas(parent=self)
         self.drone_visualizer = DroneDataCanvas(parent=self)
+
+        # Workload inference engine + display
+        from workload_inference.inference import InferenceSettings
+
+        self.workload_engine = WorkloadInferenceEngine(
+            model_path=model_path,
+            settings=InferenceSettings(
+                window_size_samples=600,  # 10s at 60 Hz
+                inference_interval_samples=60,  # 1s at 60 Hz
+                smoothing_predictions=5,
+            ),
+        )
+        self.workload_display = WorkloadDisplayWidget(
+            parent=self, engine=self.workload_engine
+        )
+
         if trial_folder:
             self.replay_data = ReplayData(
                 trial_folder=trial_folder,
-                gaze_callback=self.gaze_visualizer.datas_callback,
+                gaze_callback=self._gaze_replay_callback,
                 drone_callback=self.drone_visualizer.datas_callback,
                 sampling_rate=60.0,
             )
@@ -925,7 +1211,12 @@ class ExperimentDataReplayWindow(QMainWindow):
 
         canvas_layout = QHBoxLayout()
         canvas_layout.addWidget(self.gaze_visualizer, 1)
-        canvas_layout.addWidget(self.drone_visualizer, 1)
+        right_pane_widget = QWidget()
+        right_pane_layout = QVBoxLayout()
+        right_pane_layout.addWidget(self.drone_visualizer, 2)
+        right_pane_layout.addWidget(self.workload_display, 1)
+        right_pane_widget.setLayout(right_pane_layout)
+        canvas_layout.addWidget(right_pane_widget, 1)
 
         layout.addWidget(self.replay_slider.canvas)
         layout.addLayout(canvas_layout, 1)
@@ -937,6 +1228,13 @@ class ExperimentDataReplayWindow(QMainWindow):
 
         central_widget.setLayout(layout)
         self.setCentralWidget(central_widget)
+
+    def _gaze_replay_callback(
+        self, datas: Sequence[GazeData], batch_update: bool = False
+    ) -> None:
+        """Fan-out gaze data to both the visualizer and the workload engine."""
+        self.gaze_visualizer.datas_callback(datas, batch_update)
+        self.workload_engine.gaze_datas_callback(datas, batch_update)
 
     def play_pause(self, event):
         """Toggle play/pause state of the replay"""
@@ -979,14 +1277,74 @@ class ExperimentDataReplayWindow(QMainWindow):
 
 
 def main():
+    import argparse
     import sys
 
-    app = QApplication(sys.argv)
+    parser = argparse.ArgumentParser(
+        description="Replay and visualize experiment data",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Use default experiment without cognitive load estimation
+  python -m workload_inference.visualize
 
-    replay_folder = (
-        DATA_DIR / "experiments" / "experiment_nback" / "ALH0" / "FlyingPractice"
+  # Specify a custom experiment folder
+  python -m workload_inference.visualize /path/to/experiment/folder
+
+  # Use a relative path
+  python -m workload_inference.visualize \\
+    experiments/experiment_nback/ALH0/FlyingPractice
+
+  # Enable cognitive load estimation with a model
+  python -m workload_inference.visualize --model /path/to/model.pt
+
+  # Specify both experiment and model
+  python -m workload_inference.visualize \\
+    experiments/experiment_nback/ALH0/FlyingPractice \\
+    --model models/cognitive_load_model.pt
+        """,
     )
-    window = ExperimentDataReplayWindow(trial_folder=replay_folder)
+    parser.add_argument(
+        "trial_folder",
+        nargs="?",
+        default=None,
+        help=(
+            "Path to experiment folder (relative or absolute). "
+            "If not provided, uses default experiment."
+        ),
+    )
+    parser.add_argument(
+        "--model",
+        "-m",
+        default=None,
+        help=(
+            "Path to cognitive load estimation model. "
+            "If provided, enables workload inference visualization."
+        ),
+    )
+
+    args = parser.parse_args()
+
+    # Determine the replay folder
+    if args.trial_folder:
+        replay_folder = Path(args.trial_folder)
+        if not replay_folder.is_absolute():
+            # Treat relative paths as relative to DATA_DIR
+            replay_folder = DATA_DIR / args.trial_folder
+    else:
+        # Default experiment
+        replay_folder = (
+            DATA_DIR / "experiments" / "experiment_nback" / "ALH0" / "FlyingPractice"
+        )
+
+    if not replay_folder.exists():
+        print(f"Error: Experiment folder not found: {replay_folder}")
+        sys.exit(1)
+
+    app = QApplication(sys.argv)
+    window = ExperimentDataReplayWindow(
+        trial_folder=replay_folder, model_path=args.model
+    )
     window.show()
 
     sys.exit(app.exec())
