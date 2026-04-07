@@ -31,6 +31,8 @@ dev = [
 workload_inference = "workload_inference.main:main"
 visualize_task = "workload_inference.visualize:main"
 generate_data = "workload_inference.test_data:main"
+plot_results = "workload_inference.plot_results:main"
+offline_inference = "workload_inference.offline_inference:main"
 
 [tool.uv.sources]
 torch = [
