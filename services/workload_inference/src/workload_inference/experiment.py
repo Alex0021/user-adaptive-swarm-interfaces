@@ -28,6 +28,7 @@ from workload_inference.data_structures import (
     GazeData,
     InferenceRecord,
     NBackData,
+    UserInputData,
 )
 from workload_inference.inference import InferenceSettings, WorkloadInferenceEngine
 from workload_inference.py_receiver import SMReceiver, SMReceiverCircularBuffer
@@ -43,6 +44,7 @@ CONFIG_FILE_NAME = "experiment.yaml"
 SAMPLE_CONFIG_FILE_NAME = "sample_experiment.yaml"
 GAZE_DATA_FILE_NAME = "gaze_data.csv"
 DRONE_DATA_FILE_NAME = "drone_data.csv"
+COMMAND_DATA_FILE_NAME = "command_data.csv"
 NBACK_DATA_FILE_NAME = "nback_data.csv"
 INFERENCE_DATA_FILE_NAME = "inference_data.csv"
 GAZE_CSV_HEADER = GazeData.__annotations__.keys()
@@ -56,6 +58,7 @@ METADATA_BLOCK_NAME = "TobiiUnityMetadata"
 GAZE_DATA_BLOCK_NAME = "TobiiUnityGazeData"
 NBACK_DATA_BLOCK_NAME = "ExperimentUnityNBackData"
 DRONE_DATA_BLOCK_NAME = "ExperimentUnityDroneData"
+USER_INPUT_DATA_BLOCK_NAME = "ExperimentUnityUserInputData"
 GAZE_DATA_BLOCK_CNT = 100
 NBACK_SEQUENCE_LEN = 20
 DRONE_COUNT = 9
@@ -75,11 +78,13 @@ class ExperimentManager:
         # Listeners
         self._gaze_receiver: SMReceiverCircularBuffer | None = None
         self._drone_receiver: SMReceiver | None = None
+        self._user_input_receiver: SMReceiver | None = None
         self._nback_receiver: SMReceiver | None = None
 
         # Data writers
         self._gaze_data_writer: ExperimentDataWriter | None = None
         self._drone_data_writer: ExperimentDataWriter | None = None
+        self._user_input_data_writer: ExperimentDataWriter | None = None
         self._inference_data_writer: ExperimentDataWriter | None = None
         self._current_folder: Path | None = None
 
@@ -138,6 +143,11 @@ class ExperimentManager:
             self._gaze_receiver.start()
         if self._drone_receiver is not None and not self._drone_receiver.is_alive():
             self._drone_receiver.start()
+        if (
+            self._user_input_receiver is not None
+            and not self._user_input_receiver.is_alive()
+        ):
+            self._user_input_receiver.start()
         if self._nback_receiver is not None and not self._nback_receiver.is_alive():
             self._nback_receiver.start()
 
@@ -149,6 +159,11 @@ class ExperimentManager:
             self._gaze_receiver.stop()
         if self._drone_receiver is not None and self._drone_receiver.is_alive():
             self._drone_receiver.stop()
+        if (
+            self._user_input_receiver is not None
+            and self._user_input_receiver.is_alive()
+        ):
+            self._user_input_receiver.stop()
         if self._nback_receiver is not None and self._nback_receiver.is_alive():
             self._nback_receiver.stop()
 
@@ -187,19 +202,27 @@ class ExperimentManager:
             self._nback_receiver = SMReceiver(
                 NBACK_DATA_BLOCK_NAME, NBackData, 15, NBACK_SEQUENCE_LEN
             )
+        if self._user_input_receiver is None:
+            self._user_input_receiver = SMReceiver(
+                USER_INPUT_DATA_BLOCK_NAME, UserInputData, 30
+            )
 
     def initialize_data_writers(self) -> None:
         if self._gaze_data_writer is None:
             self._gaze_data_writer = ExperimentDataWriter(
-                header=GAZE_CSV_HEADER, name="gaze_data"
+                header=GAZE_CSV_HEADER, name=GAZE_DATA_FILE_NAME
             )
         if self._drone_data_writer is None:
             self._drone_data_writer = ExperimentDataWriter(
-                header=DRONE_CSV_HEADER, name="drone_data"
+                header=DRONE_CSV_HEADER, name=DRONE_DATA_FILE_NAME
+            )
+        if self._user_input_data_writer is None:
+            self._user_input_data_writer = ExperimentDataWriter(
+                header=UserInputData.__annotations__.keys(), name=COMMAND_DATA_FILE_NAME
             )
         if self._inference_data_writer is None:
             self._inference_data_writer = ExperimentDataWriter(
-                header=INFERENCE_CSV_HEADER, name="inference_data"
+                header=INFERENCE_CSV_HEADER, name=INFERENCE_DATA_FILE_NAME
             )
 
     def initialize_listeners(self) -> None:
@@ -211,6 +234,13 @@ class ExperimentManager:
             )
         if self._nback_receiver is not None:
             self._nback_receiver.register_listener(self.nback_datas_callback)
+        if (
+            self._user_input_receiver is not None
+            and self._user_input_data_writer is not None
+        ):
+            self._user_input_receiver.register_listener(
+                self._user_input_data_writer.datas_callback
+            )
 
     def _initialize_structure(self, overwrite: bool = False) -> None:
         """
@@ -277,6 +307,16 @@ class ExperimentManager:
                 / exp_name
                 / participant_uid
                 / "**"
+                / COMMAND_DATA_FILE_NAME
+            ),
+            recursive=True,
+        )
+        existing_files += glob.glob(
+            str(
+                self.base_folder
+                / exp_name
+                / participant_uid
+                / "**"
                 / NBACK_DATA_FILE_NAME
             ),
             recursive=True,
@@ -334,6 +374,10 @@ class ExperimentManager:
                     self._drone_data_writer.new_file(
                         self._current_folder / DRONE_DATA_FILE_NAME
                     )
+                    if self._user_input_data_writer is not None:
+                        self._user_input_data_writer.new_file(
+                            self._current_folder / COMMAND_DATA_FILE_NAME
+                        )
                     if self._inference_data_writer is not None:
                         self._inference_data_writer.new_file(
                             self._current_folder / INFERENCE_DATA_FILE_NAME
@@ -341,6 +385,7 @@ class ExperimentManager:
                     # Start recording
                     self._gaze_data_writer.start()
                     self._drone_data_writer.start()
+                    self._user_input_data_writer.start()
                     if self._inference_data_writer is not None:
                         self._inference_data_writer.start()
                     self.start_receivers()
@@ -385,6 +430,11 @@ class ExperimentManager:
                         self._current_folder / DRONE_DATA_FILE_NAME
                     )
                     self._drone_data_writer.start()
+                if self._user_input_data_writer is not None:
+                    self._user_input_data_writer.new_file(
+                        self._current_folder / COMMAND_DATA_FILE_NAME
+                    )
+                    self._user_input_data_writer.start()
                 if self._inference_data_writer is not None:
                     self._inference_data_writer.new_file(
                         self._current_folder / INFERENCE_DATA_FILE_NAME
@@ -398,6 +448,8 @@ class ExperimentManager:
                     self._gaze_data_writer.stop()
                 if self._drone_data_writer is not None:
                     self._drone_data_writer.stop()
+                if self._user_input_data_writer is not None:
+                    self._user_input_data_writer.stop()
                 if self._inference_data_writer is not None:
                     self._inference_data_writer.stop()
                 self.dump_latest_nback_data()
@@ -599,7 +651,7 @@ class ExperimentManagerWindow(QMainWindow):
                 settings = InferenceSettings()
         else:
             settings = InferenceSettings()
-        self._workload_engine = WorkloadInferenceEngine(
+        self._workload_engine = WorkloadInferenceEngine.create(
             model_path=model_path,
             settings=settings,
         )
