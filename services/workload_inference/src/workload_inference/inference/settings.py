@@ -39,6 +39,7 @@ class InferenceSettings:
     schmitt_min_fraction: float = 0.6
     schmitt_min_consecutive: int = 3
     schmitt_warmup_windows: int = 5
+    filter: dict = field(default_factory=dict)
     feature_columns: list[str] = field(default_factory=list)
     # Raw time-series columns fed to sequence models (e.g. TCN).
     # Each entry must match a column present in the preprocessed pupil DataFrame

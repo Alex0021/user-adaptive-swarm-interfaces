@@ -16,6 +16,10 @@ class WorkloadFilter(ABC):
     def update(self, pred_class: int, proba: np.ndarray) -> tuple[int, np.ndarray]:
         """Accept a new prediction and return (filtered_class, filtered_proba)."""
 
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset all internal state (called between tasks)."""
+
 
 class ProbabilitySmoothingFilter(WorkloadFilter):
     """Rolling-window probability average filter.
@@ -28,7 +32,7 @@ class ProbabilitySmoothingFilter(WorkloadFilter):
     :param warmup_windows: Number of initial predictions to skip smoothing, allowing the filter to
     """
 
-    def __init__(self, window: int = 5, warmup_windows: int = 0):
+    def __init__(self, window: int = 5, warmup_windows: int = 0, **kwargs):
         self._warmup_windows = warmup_windows
         self._history: deque[tuple[int, np.ndarray]] = deque(maxlen=window)
         self._n_updates: int = 0
@@ -40,6 +44,10 @@ class ProbabilitySmoothingFilter(WorkloadFilter):
         if self._n_updates <= self._warmup_windows:
             return pred_class, avg_proba
         return int(np.argmax(avg_proba)), avg_proba
+
+    def reset(self) -> None:
+        self._history.clear()
+        self._n_updates = 0
 
 
 class SchmittTriggerFilter(WorkloadFilter):
@@ -62,6 +70,7 @@ class SchmittTriggerFilter(WorkloadFilter):
         min_consecutive: int = 3,
         window: int = 5,
         warmup_windows: int = 0,
+        **kwargs,
     ):
         self._min_fraction = min_fraction
         self._min_consecutive = min_consecutive
@@ -99,17 +108,26 @@ class SchmittTriggerFilter(WorkloadFilter):
 
         return self._stable_class, proba
 
+    def reset(self) -> None:
+        self._history.clear()
+        self._n_updates = 0
+        self._stable_class = -1
+
 
 class FilterPipeline(WorkloadFilter):
     """Cascades multiple WorkloadFilters, feeding each output into the next."""
 
-    def __init__(self, *filters: WorkloadFilter):
+    def __init__(self, *filters: WorkloadFilter, **kwargs):
         self._filters = list(filters)
 
     def update(self, pred_class: int, proba: np.ndarray) -> tuple[int, np.ndarray]:
         for f in self._filters:
             pred_class, proba = f.update(pred_class, proba)
         return pred_class, proba
+
+    def reset(self) -> None:
+        for f in self._filters:
+            f.reset()
 
 
 class SmoothingSchmittFilter(FilterPipeline):
@@ -130,6 +148,7 @@ class SmoothingSchmittFilter(FilterPipeline):
         min_fraction: float = 0.6,
         min_consecutive: int = 3,
         warmup_windows: int = 0,
+        **kwargs,
     ):
         super().__init__(
             ProbabilitySmoothingFilter(
@@ -142,3 +161,25 @@ class SmoothingSchmittFilter(FilterPipeline):
                 window=smoothing_predictions,
             ),
         )
+
+
+class RawFilter(WorkloadFilter):
+    """Pass-through filter: returns raw predictions unchanged."""
+
+    def __init__(self, **kwargs):
+        pass
+
+    def update(self, pred_class: int, proba: np.ndarray) -> tuple[int, np.ndarray]:
+        return pred_class, proba
+
+    def reset(self) -> None:
+        pass
+
+
+# Registry maps class name strings (as used in settings.yml) to filter classes
+FILTER_REGISTRY: dict[str, type[WorkloadFilter]] = {
+    "RawFilter": RawFilter,
+    "ProbabilitySmoothingFilter": ProbabilitySmoothingFilter,
+    "SchmittTriggerFilter": SchmittTriggerFilter,
+    "SmoothingSchmittFilter": SmoothingSchmittFilter,
+}
