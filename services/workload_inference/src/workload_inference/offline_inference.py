@@ -34,10 +34,19 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from eye_metrics.config import EyeMetricsConfig
 
-from workload_inference.data_structures import GazeData, InferenceRecord, NBackData
-from workload_inference.experiment import INFERENCE_CSV_HEADER
-from workload_inference.inference.engine import WorkloadInferenceEngine
+from workload_inference.constants import DATA_DIR
+from workload_inference.experiments.base import INFERENCE_CSV_HEADER
+from workload_inference.experiments.data_structures import (
+    GazeData,
+    InferenceRecord,
+    NBackData,
+)
+from workload_inference.inference.engine import (
+    DEFAULT_EYE_METRICS_CONFIG_FILENAME,
+    WorkloadInferenceEngine,
+)
 from workload_inference.inference.settings import InferenceSettings
 
 logger = logging.getLogger(__name__)
@@ -204,6 +213,7 @@ def run_folder(
     output_root: Path | None,
     overwrite: bool,
     engine: WorkloadInferenceEngine | None = None,
+    eye_metrics_config: EyeMetricsConfig | None = None,
 ) -> FolderResult:
     """Run offline inference for a single experiment folder.
 
@@ -222,6 +232,9 @@ def run_folder(
             preserved across folders — exactly as it is in the live experiment
             where practice phases warm up the engine before the first trial.
             When *None* a fresh engine is created for this folder.
+        eye_metrics_config: Preprocessing configuration.  Forwarded to a newly
+            created engine when *engine* is *None*; ignored when reusing an
+            existing engine (config is already baked in at construction time).
 
     Returns:
         A :class:`FolderResult` summarising the outcome.
@@ -260,7 +273,11 @@ def run_folder(
 
     # ── Replay through engine ────────────────────────────────────────────────
     if engine is None:
-        engine = WorkloadInferenceEngine.create(model_path=model_path, settings=settings)
+        engine = WorkloadInferenceEngine.create(
+            model_path=model_path,
+            settings=settings,
+            eye_metrics_config=eye_metrics_config,
+        )
     else:
         # Reset per-task state: flush pupil buffers, raw gaze buffer, and Schmitt
         # filter so the previous task's data does not bleed into this one.
@@ -411,6 +428,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Path to InferenceSettings YAML.  Uses defaults when omitted.",
     )
     parser.add_argument(
+        "--eye-metrics",
+        type=Path,
+        default=None,
+        metavar="YAML",
+        help="Path to eye_metrics.yml preprocessing config.  "
+        "Auto-detected from data/eye_metrics.yml when omitted.",
+    )
+    parser.add_argument(
         "--model",
         type=Path,
         default=None,
@@ -475,6 +500,20 @@ def main() -> None:
     else:
         settings = InferenceSettings()
 
+    # ── Load eye metrics preprocessing config ────────────────────────────────
+    eye_metrics_path: Path | None = args.eye_metrics
+    if eye_metrics_path is None:
+        default_em = DATA_DIR / DEFAULT_EYE_METRICS_CONFIG_FILENAME
+        if default_em.exists():
+            eye_metrics_path = default_em
+    if eye_metrics_path is not None:
+        if not eye_metrics_path.exists():
+            parser.error(f"Eye metrics config not found: {eye_metrics_path}")
+        eye_metrics_config = EyeMetricsConfig.from_yaml(eye_metrics_path)
+        logger.info("Loaded eye metrics config from %s", eye_metrics_path)
+    else:
+        eye_metrics_config = EyeMetricsConfig()
+
     # ── Resolve model ────────────────────────────────────────────────────────
     try:
         model_path = _resolve_model_path(args.model, data_root)
@@ -525,7 +564,9 @@ def main() -> None:
     for subject in sorted(subject_groups):
         group = sorted(subject_groups[subject])  # chronological by name
         subject_engine = WorkloadInferenceEngine.create(
-            model_path=model_path, settings=settings
+            model_path=model_path,
+            settings=settings,
+            eye_metrics_config=eye_metrics_config,
         )
         for folder in group:
             idx += 1
@@ -540,6 +581,7 @@ def main() -> None:
                 output_root=args.output,
                 overwrite=args.overwrite,
                 engine=subject_engine,
+                eye_metrics_config=eye_metrics_config,
             )
             results.append(result)
 
@@ -587,3 +629,7 @@ def main() -> None:
         print("Errors detail:")
         for r in errors:
             print(f"  {_fmt_rel(r.folder, data_root)}: {r.error}")
+
+
+if __name__ == "__main__":
+    main()

@@ -35,31 +35,45 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from eye_metrics.config import EyeMetricsConfig
+from eye_metrics.features.definitions import FEATURE_SETS
+from eye_metrics.features.normalization import WelfordNormalizer
+from eye_metrics.features.pupil import LHIPA, RIPA2, WaveletFeature
+from eye_metrics.preprocessing.eye_selection import select_best_eye
+from eye_metrics.preprocessing.gaps import detect_gaps_and_blinks
+from eye_metrics.preprocessing.interpolation import interpolate_pupil_data
+from eye_metrics.preprocessing.outliers import OnlinePupilStats
 
-from workload_inference.data_structures import GazeData
-from workload_inference.eye_metrics.features import FEATURE_SETS
-from workload_inference.eye_metrics.gaze_utils import detect_gaps_and_blinks
-from workload_inference.eye_metrics.interpolate import interpolate_pupil_data
-from workload_inference.eye_metrics.preprocessing import select_best_eye
-from workload_inference.eye_metrics.pupil_utils import LHIPA, RIPA2, WaveletFeature
+from workload_inference.constants import DATA_DIR
+from workload_inference.experiments.data_structures import GazeData
 
-from .filters import SmoothingSchmittFilter, WorkloadFilter
-from .online_stats import OnlinePupilStats, WelfordNormalizer
+from .filters import FILTER_REGISTRY, WorkloadFilter
 from .settings import InferenceSettings
 
 logger = logging.getLogger(__name__)
 
-# Preprocessing thresholds (matching offline pipeline)
-CONFIDENCE_THRESHOLD = 0.5
-BLINK_DURATION_MIN_THRESHOLD_MS = 100
-BLINK_SAMPLE_MARGIN_MS = 100
-MAX_GAP_THRESHOLD_INTERPOLATION_MS = 300
-MIN_NON_BLINK_GAP_RATIO_FOR_VALIDITY = 0.5
-""" If too much of the window is taken up by non-blink gaps, the window is invalid."""
+DEFAULT_EYE_METRICS_CONFIG_FILENAME = "eye_metrics.yml"
 
-MIN_SAMPLES_FOR_INTERPOLATION = 20
-""" If fewer than this number of valid samples remain after filtering, skip 
-interpolation and downstream inference to avoid artefacts."""
+
+def _build_filter_from_settings(settings: InferenceSettings) -> WorkloadFilter:
+    """Build a filter instance from settings.filter dict with 'type' and params."""
+    filter_config = settings.filter or {}
+    if "type" not in filter_config:
+        logger.warning(
+            "No filter type specified in settings. Using RawFilter (no smoothing)."
+        )
+        return FILTER_REGISTRY["RawFilter"]()
+    filter_type = filter_config["type"]
+
+    filter_cls = FILTER_REGISTRY.get(filter_type)
+    if filter_cls is None:
+        raise ValueError(
+            f"Unknown filter type '{filter_type}'. Available: {list(FILTER_REGISTRY)}"
+        )
+
+    # Extract all keys except 'type' as constructor parameters
+    params = {k: v for k, v in filter_config.items() if k != "type"}
+    return filter_cls(**params)
 
 
 class WorkloadInferenceEngine(ABC):
@@ -80,10 +94,23 @@ class WorkloadInferenceEngine(ABC):
         model_path: str | Path | None = None,
         settings: InferenceSettings | None = None,
         filter: WorkloadFilter | None = None,
+        eye_metrics_config: EyeMetricsConfig | None = None,
     ):
         if settings is None:
+            logger.warning(
+                "No inference settings provided. Using defaults for all parameters."
+            )
             settings = InferenceSettings()
         self._settings = settings
+
+        if eye_metrics_config is not None:
+            self._eye_metrics_config = eye_metrics_config
+        elif (DATA_DIR / DEFAULT_EYE_METRICS_CONFIG_FILENAME).exists():
+            self._eye_metrics_config = EyeMetricsConfig.from_yaml(
+                DATA_DIR / DEFAULT_EYE_METRICS_CONFIG_FILENAME
+            )
+        else:
+            self._eye_metrics_config = EyeMetricsConfig()
 
         self._sample_rate = settings.sample_rate
         self._window_size_samples = settings.window_size_samples
@@ -96,12 +123,7 @@ class WorkloadInferenceEngine(ABC):
         )
 
         if filter is None:
-            filter = SmoothingSchmittFilter(
-                smoothing_predictions=settings.smoothing_predictions,
-                min_fraction=settings.schmitt_min_fraction,
-                min_consecutive=settings.schmitt_min_consecutive,
-                warmup_windows=settings.schmitt_warmup_windows,
-            )
+            filter = _build_filter_from_settings(settings)
         self._filter = filter
 
         self._model = None
@@ -112,7 +134,9 @@ class WorkloadInferenceEngine(ABC):
         self._raw_buffer: deque[GazeData] = deque(maxlen=self._window_size_samples * 2)
         self._samples_since_last_inference = 0
 
-        self._pupil_stats = OnlinePupilStats()
+        self._pupil_stats = OnlinePupilStats(
+            self._eye_metrics_config.preprocessing.outlier_rejection.ema_alpha
+        )
 
         buffer_size = settings.rolling_buffer_samples
         self._ripa2 = RIPA2(
@@ -166,9 +190,13 @@ class WorkloadInferenceEngine(ABC):
         model_path: str | Path | None = None,
         settings: InferenceSettings | None = None,
         filter: WorkloadFilter | None = None,
+        eye_metrics_config: EyeMetricsConfig | None = None,
     ) -> WorkloadInferenceEngine:
         """Instantiate the engine subclass specified by ``settings.model_type``."""
         if settings is None:
+            logger.warning(
+                "No inference settings provided. Using defaults for all parameters."
+            )
             settings = InferenceSettings()
         engines = {
             "tabnet": TabNetInferenceEngine,
@@ -181,7 +209,7 @@ class WorkloadInferenceEngine(ABC):
                 f"Unknown model_type '{settings.model_type}'. "
                 f"Expected one of: {list(engines)}"
             )
-        return engine_cls(model_path, settings, filter)
+        return engine_cls(model_path, settings, filter, eye_metrics_config)
 
     @abstractmethod
     def _load_model(self, model_path: Path) -> None:
@@ -318,15 +346,22 @@ class WorkloadInferenceEngine(ABC):
         self, eye_df: pd.DataFrame
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         empty = pd.DataFrame()
+        pre = self._eye_metrics_config.preprocessing
 
-        eye_df, _best_eye = select_best_eye(eye_df.copy(), threshold=0.05)
+        eye_df, _best_eye = select_best_eye(
+            eye_df.copy(),
+            threshold=pre.eye_selection.validity_difference_threshold,
+        )
 
         gaps_df = detect_gaps_and_blinks(
             eye_df,
-            confidence_threshold=CONFIDENCE_THRESHOLD,
-            blink_threshold_range=(100, 300),
+            confidence_threshold=pre.gaps_and_blinks.confidence_threshold,
+            blink_threshold_range=(
+                pre.gaps_and_blinks.blink_duration_min_ms,
+                pre.gaps_and_blinks.blink_duration_max_ms,
+            ),
             eye_openness_column="openness",
-            openness_threshold=0.5,
+            openness_threshold=pre.gaps_and_blinks.openness_threshold,
         )
 
         eye_df.rename(columns={"pupil_diameter_mm": "pupil_diameter"}, inplace=True)
@@ -339,10 +374,11 @@ class WorkloadInferenceEngine(ABC):
             non_blink = gaps_df[~gaps_df["is_blink"]]
             if not non_blink.empty:
                 lc_count = (non_blink["stop_id"] - non_blink["start_id"] + 1).sum()
-                if lc_count / total_samples > MIN_NON_BLINK_GAP_RATIO_FOR_VALIDITY:
+                if lc_count / total_samples > pre.validation.min_non_blink_gap_ratio:
                     return empty, gaps_df
 
-        eye_df = eye_df[eye_df["confidence"] >= CONFIDENCE_THRESHOLD]
+        min_conf = pre.gaps_and_blinks.confidence_threshold
+        eye_df = eye_df[eye_df["confidence"] >= min_conf]
 
         if "pupil_diameter" in eye_df.columns:
             ts = eye_df["timestamp_sec"].values
@@ -355,13 +391,16 @@ class WorkloadInferenceEngine(ABC):
             speeds[-1] = speed_fwd[-1] if len(speed_fwd) > 0 else 0.0
             speeds[1:-1] = np.maximum(speed_fwd[:-1], speed_fwd[1:])
             self._pupil_stats.update_from_speeds(speeds)
-            outlier_mask = self._pupil_stats.outlier_mask(speeds)
+            outlier_mask = self._pupil_stats.outlier_mask(
+                speeds,
+                n_multiplier=pre.outlier_rejection.n_mad_multiplier,
+            )
             eye_df = eye_df[~outlier_mask]
 
         # Remove blinks with a margin on either side to avoid edge artefacts
-        margins = BLINK_SAMPLE_MARGIN_MS / 1000.0
+        margins = pre.gaps_and_blinks.blink_margin_ms / 1000.0
         for _, row in gaps_df[
-            gaps_df["duration_ms"] >= BLINK_DURATION_MIN_THRESHOLD_MS
+            gaps_df["duration_ms"] >= pre.gaps_and_blinks.blink_duration_min_ms
         ].iterrows():
             idx_to_drop = eye_df[
                 (eye_df["timestamp_sec"] >= row["start_timestamp"] - margins)
@@ -369,14 +408,15 @@ class WorkloadInferenceEngine(ABC):
             ].index
             eye_df.drop(idx_to_drop, inplace=True)
 
-        if len(eye_df) < MIN_SAMPLES_FOR_INTERPOLATION:
+        if len(eye_df) < pre.interpolation.min_samples:
             return empty, gaps_df
 
         pupil_df = interpolate_pupil_data(
             eye_df,
             gaps_df,
             column="pupil_diameter",
-            max_gap_ms=MAX_GAP_THRESHOLD_INTERPOLATION_MS,
+            max_gap_ms=pre.interpolation.max_gap_ms,
+            resample_period_ms=round(1000.0 / self._sample_rate, 2),
         )
         return pupil_df, gaps_df
 
@@ -433,7 +473,8 @@ class WorkloadInferenceEngine(ABC):
         self._last_feature_vector = feature_vector.copy()
 
         self._normalizer.update(feature_vector)
-        if self._normalizer.n >= 3:
+        min_obs = self._eye_metrics_config.normalization.min_observations
+        if self._normalizer.n >= min_obs:
             feature_vector = self._normalizer.normalize(feature_vector)
 
         return feature_vector
@@ -569,9 +610,7 @@ class WorkloadInferenceEngine(ABC):
         self._last_feature_vector = None
         if hasattr(self, "_last_raw_sequence"):
             self._last_raw_sequence = None
-        self._filter._n_updates = 0
-        self._filter._stable_class = -1
-        self._filter._history.clear()
+        self._filter.reset()
         logger.debug("Pupil feature buffers and Schmitt filter reset for new task")
 
 
