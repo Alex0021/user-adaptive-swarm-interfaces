@@ -45,6 +45,10 @@ class InferenceSettings:
     # Each entry must match a column present in the preprocessed pupil DataFrame
     # (e.g. "pupil_diameter", "openness").  Defaults to ["pupil_diameter"].
     raw_feature_columns: list[str] = field(default_factory=list)
+    # Cap on the number of *clean* (no-imputation) windows used to update the
+    # online z-score estimator.  Once reached, mean/std are frozen.  Set to 0
+    # to disable the cap (update forever).
+    normalization_warmup_windows: int = 120
 
     # -- derived helpers (seconds) -----------------------------------------
 

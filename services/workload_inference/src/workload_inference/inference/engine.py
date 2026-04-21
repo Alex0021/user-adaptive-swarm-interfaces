@@ -265,7 +265,7 @@ class WorkloadInferenceEngine(ABC):
         n_available = len(snapshot)
         min_samples = int(self._window_size_samples * self._min_valid_ratio)
         if n_available < min_samples:
-            logger.debug(
+            logger.info(
                 "Skipping inference: only %d samples available (need %d)",
                 n_available,
                 min_samples,
@@ -275,7 +275,7 @@ class WorkloadInferenceEngine(ABC):
         df = self._build_dataframe(snapshot)
         pupil_df, gaps_df = self._preprocess_online(df)
         if pupil_df.empty or len(pupil_df) < 50:
-            logger.debug("Skipping inference: insufficient samples after preprocessing")
+            logger.info("Skipping inference: insufficient samples after preprocessing")
             self._repeat_last_prediction()
             return
 
@@ -283,13 +283,20 @@ class WorkloadInferenceEngine(ABC):
             pupil_df["timestamp_sec"].iloc[-1] - pupil_df["timestamp_sec"].iloc[0]
         )
         if duration <= 0:
-            logger.debug("Skipping inference: zero-length window")
+            logger.info("Skipping inference: zero-length window")
             self._repeat_last_prediction()
             return
 
         result = self._extract_features_and_predict(pupil_df, gaps_df, duration)
         if result is None:
-            self._repeat_last_prediction()
+            if self._prediction_history:
+                self._repeat_last_prediction()
+            else:
+                neutral = np.array([1.0 / 3.0, 1.0 / 3.0 + 1e-9, 1.0 / 3.0])
+                with self._inference_lock:
+                    self._prediction_history.append((1, neutral, time.time()))
+                self._smooth_and_notify()
+                self._last_inference_timestamp = time.time()
             return
 
         pred_class, proba = result
@@ -440,7 +447,7 @@ class WorkloadInferenceEngine(ABC):
         self._extract_pupil_realtime_features(pupil_df, features)
 
         if not features:
-            logger.debug("Skipping inference: no features extracted")
+            logger.info("Skipping inference: no features extracted")
             return None
 
         if self._feature_columns is None:
@@ -460,19 +467,26 @@ class WorkloadInferenceEngine(ABC):
                 feature_vector = np.where(
                     bad_mask, self._last_feature_vector, feature_vector
                 )
-                logger.debug(
+                logger.info(
                     "Imputed %d bad features from last valid window", bad_mask.sum()
                 )
             else:
-                feature_vector = np.where(bad_mask, 0.0, feature_vector)
                 logger.debug(
-                    "Imputed %d bad features with 0.0 (no prior window)", bad_mask.sum()
+                    "Skipping inference: %d bad features, no prior window",
+                    bad_mask.sum(),
                 )
+                return None
 
         # Save raw (pre-normalisation) vector for future imputation
         self._last_feature_vector = feature_vector.copy()
 
-        self._normalizer.update(feature_vector)
+        # Only update the normalizer on clean windows (no imputation) and only
+        # during warmup.  After warmup the mean/std are frozen so late-session
+        # workload drift doesn't distort z-scores.
+        warmup = self._settings.normalization_warmup_windows
+        if not bad_mask.any() and (warmup <= 0 or self._normalizer.n < warmup):
+            self._normalizer.update(feature_vector)
+
         min_obs = self._eye_metrics_config.normalization.min_observations
         if self._normalizer.n >= min_obs:
             feature_vector = self._normalizer.normalize(feature_vector)
