@@ -397,11 +397,30 @@ class GateRacingExperimentManagerWindow(ExperimentManagerWindow):
 
         # ── Trial cards ───────────────────────────────────────────────────
         current_trial = status.current_trial
+        is_finished = status.current_state == ExperimentState.Finished
         for i, card in enumerate(self._trial_cards):
             trial_num = i + 1
-            if trial_num < current_trial:
+            finish = manager.trial_finish_times.get(trial_num)
+
+            if is_finished:
+                # In Finished state, current_trial from the API may be reset/unreliable.
+                # Show every trial that has a recorded finish time as a past result.
+                if finish is not None:
+                    card.widget.setStyleSheet(_TRIAL_STYLE_PAST)
+                    m, s = divmod(int(finish), 60)
+                    card.time_lbl.setText(f"{m:02d}:{s:02d}")
+                    crashed = manager.trial_crashed_drones.get(trial_num)
+                    card.crash_lbl.setText(
+                        f"{crashed} crashed" if crashed is not None else "—"
+                    )
+                    card.collision_lbl.setText("—")
+                else:
+                    card.widget.setStyleSheet(_TRIAL_STYLE_FUTURE)
+                    card.time_lbl.setText("—")
+                    card.crash_lbl.setText("—")
+                    card.collision_lbl.setText("—")
+            elif trial_num < current_trial:
                 card.widget.setStyleSheet(_TRIAL_STYLE_PAST)
-                finish = manager.trial_finish_times.get(trial_num)
                 if finish is not None:
                     m, s = divmod(int(finish), 60)
                     card.time_lbl.setText(f"{m:02d}:{s:02d}")
@@ -416,7 +435,6 @@ class GateRacingExperimentManagerWindow(ExperimentManagerWindow):
             elif trial_num == current_trial:
                 card.widget.setStyleSheet(_TRIAL_STYLE_CURRENT)
                 # Check if trial has a recorded finish time (for Countdown/ReadyScreen)
-                finish = manager.trial_finish_times.get(trial_num)
                 if finish is not None:
                     # Trial is completed, show the final recorded time
                     m, s = divmod(int(finish), 60)

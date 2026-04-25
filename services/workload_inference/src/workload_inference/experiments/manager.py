@@ -101,6 +101,10 @@ class NBackExperimentManager(ExperimentManager):
             ):
                 self._duration = time.time() - self._start_time
                 self._write_extra_experiment_info()
+                # Stop the N-back receiver so Unity cannot overwrite nback_latest_datas
+                # after the experiment ends (which would blank the score display).
+                if self._nback_receiver is not None and self._nback_receiver.is_alive():
+                    self._nback_receiver.stop()
             if new_status.current_state == ExperimentState.FlyingPractice:
                 # Set folder path
                 self._current_folder = (

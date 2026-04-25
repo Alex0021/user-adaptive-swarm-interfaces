@@ -439,9 +439,10 @@ class WorkloadInferenceEngine(ABC):
     ) -> np.ndarray | None:
         """Extract scalar engineered features and return a normalised vector.
 
-        Any NaN or inf value is imputed from the last valid window's vector.
-        On the very first window, bad values fall back to 0.0.
-        Returns ``None`` only when no features could be extracted at all.
+        NaN/inf values are imputed from the last valid window; if no prior
+        window exists the window is skipped (returns ``None``).  Windows where
+        the normalizer has not yet seen enough observations to produce reliable
+        z-scores also return ``None`` so the model never receives raw features.
         """
         features = self._extract_blink_features(gaps_df, duration)
         self._extract_pupil_realtime_features(pupil_df, features)
@@ -461,6 +462,8 @@ class WorkloadInferenceEngine(ABC):
         # Treat inf as NaN so both are handled uniformly
         feature_vector = np.where(np.isinf(feature_vector), np.nan, feature_vector)
 
+        # Use latest valid feature value if one or more features are bad (NaN or inf).
+        # This allows engine to at least try its best to estimate cwl on current window
         bad_mask = np.isnan(feature_vector)
         if bad_mask.any():
             if self._last_feature_vector is not None:
@@ -471,7 +474,7 @@ class WorkloadInferenceEngine(ABC):
                     "Imputed %d bad features from last valid window", bad_mask.sum()
                 )
             else:
-                logger.debug(
+                logger.warning(
                     "Skipping inference: %d bad features, no prior window",
                     bad_mask.sum(),
                 )
@@ -488,8 +491,14 @@ class WorkloadInferenceEngine(ABC):
             self._normalizer.update(feature_vector)
 
         min_obs = self._eye_metrics_config.normalization.min_observations
-        if self._normalizer.n >= min_obs:
-            feature_vector = self._normalizer.normalize(feature_vector)
+        if self._normalizer.n < min_obs:
+            logger.warning(
+                "Skipping inference: normalizer has %d/%d observations",
+                self._normalizer.n,
+                min_obs,
+            )
+            return None
+        feature_vector = self._normalizer.normalize(feature_vector)
 
         return feature_vector
 

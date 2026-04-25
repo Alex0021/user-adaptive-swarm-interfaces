@@ -833,9 +833,7 @@ class DroneDataCanvasGateRacing(FigureCanvas):
         # Dead drone X markers
         dead_mask = self._ever_seen & ~self._alive
         if dead_mask.any():
-            offsets = np.column_stack(
-                [self._pos_z[dead_mask], self._pos_x[dead_mask]]
-            )
+            offsets = np.column_stack([self._pos_z[dead_mask], self._pos_x[dead_mask]])
             if self._dead_scatter is None:
                 self._dead_scatter = self.ax.scatter(
                     offsets[:, 0],

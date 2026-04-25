@@ -359,7 +359,15 @@ class ExperimentManager:
         )
         self._inference_data_writer.datas_callback([record])
         # Send to Unity via API endpoint
-        self._api.send_to("cwl/level", {"level": int(filtered_class)})
+        self._api.send_to(
+            "cwl/level",
+            {
+                "level": int(filtered_class),
+                "lowProb": float(probabilities[0]),
+                "medProb": float(probabilities[1]),
+                "highProb": float(probabilities[2]),
+            },
+        )
 
     # ── Background API polling ───────────────────────────────────────────────
 
