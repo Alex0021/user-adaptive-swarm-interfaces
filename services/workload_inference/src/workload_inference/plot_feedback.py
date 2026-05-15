@@ -17,8 +17,8 @@ import dataclasses
 import re
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import yaml
@@ -31,7 +31,7 @@ _DEFAULT_EXPERIMENT = "experiment_racing_gates"
 _SUBJECT_RE = re.compile(r"^[A-Z0-9]{4}$")
 _FEEDBACK_GLOB = "feedback_*.csv"
 
-_COLOR_ADAPTIVE = "#E91E63"
+_COLOR_ADAPTIVE = "#FF821B"
 _COLOR_CONTROL = "#1976D2"
 _COLOR_NEUTRAL = "#607D8B"
 
@@ -51,8 +51,7 @@ class SubjectRecord:
 def _find_subject_dirs(experiment_dir: Path) -> list[Path]:
     """Return sorted list of subject directories matching _SUBJECT_RE."""
     dirs = [
-        d for d in experiment_dir.iterdir()
-        if d.is_dir() and _SUBJECT_RE.match(d.name)
+        d for d in experiment_dir.iterdir() if d.is_dir() and _SUBJECT_RE.match(d.name)
     ]
     dirs.sort(key=lambda d: d.name.lstrip("_"))
     return dirs
@@ -133,15 +132,19 @@ def load_experiment_data(experiment_dir: Path) -> list[SubjectRecord]:
 
 def plot_subject_durations(records: list[SubjectRecord]) -> plt.Figure:
     """Create horizontal bar chart of subject durations."""
-    fig, ax = plt.subplots(
-        figsize=(10, max(4, 0.5 * len(records)))
-    )
+    fig, ax = plt.subplots(figsize=(10, max(4, 0.5 * len(records))))
 
     durations_min = [r.duration_sec / 60 for r in records]
     subject_ids = [r.subject_id for r in records]
     colors = [_COLOR_ADAPTIVE if r.adaptive else _COLOR_CONTROL for r in records]
 
-    ax.barh(range(len(records)), durations_min, color=colors, edgecolor="white", linewidth=0.5)
+    ax.barh(
+        range(len(records)),
+        durations_min,
+        color=colors,
+        edgecolor="white",
+        linewidth=0.5,
+    )
     ax.set_yticks(range(len(records)))
     ax.set_yticklabels(subject_ids, fontsize=9)
     ax.set_xlabel("Duration (minutes)")
@@ -171,7 +174,7 @@ def _style_score_axis(ax: plt.Axes) -> None:
     ax.set_ylim(-1.1, 1.1)
     ax.set_yticks([-1, -0.33, 0, 0.33, 1])
     ax.set_yticklabels(
-        ["-1\n(Harmful)", "-0.33", "0\n(Neutral)", "+0.33", "+1\n(Helpful)"],
+        ["-1\n(Not helpful)", "-0.33", "0\n(Neutral)", "+0.33", "+1\n(Helpful)"],
         fontsize=8,
     )
     ax.set_ylabel("Perceived Adaptation Score")
@@ -202,17 +205,24 @@ def plot_feedback_distribution(
     if all_fb.empty:
         fig, ax = plt.subplots(figsize=(12, 6))
         ax.text(
-            0.5, 0.5, "No feedback data available",
-            ha="center", va="center", fontsize=12, transform=ax.transAxes
+            0.5,
+            0.5,
+            "No feedback data available",
+            ha="center",
+            va="center",
+            fontsize=12,
+            transform=ax.transAxes,
         )
-        fig.suptitle(f"Feedback Distribution — {experiment_name}", fontweight="bold")
+        fig.suptitle(f"Feedback Distribution", fontweight="bold")
         return fig
 
     show_groups = any(not r.adaptive for r in records)
 
     if show_groups:
         fig = plt.figure(figsize=(16, 10))
-        gs = fig.add_gridspec(2, 2, height_ratios=[2, 1], width_ratios=[1, 1], hspace=0.35, wspace=0.3)
+        gs = fig.add_gridspec(
+            2, 2, height_ratios=[2, 1], width_ratios=[1, 1], hspace=0.35, wspace=0.3
+        )
         ax_adaptive = fig.add_subplot(gs[0, 0])
         ax_control = fig.add_subplot(gs[0, 1])
         ax_group = fig.add_subplot(gs[1, :])
@@ -233,7 +243,10 @@ def plot_feedback_distribution(
             (ax_control, "Control", False),
         ]:
             group_data = all_fb[all_fb["adaptive"] == is_adaptive_group]
-            box_data = [group_data[group_data["trial"] == t]["normalised_score"].dropna().values for t in trials]
+            box_data = [
+                group_data[group_data["trial"] == t]["normalised_score"].dropna().values
+                for t in trials
+            ]
 
             bp = ax.boxplot(
                 box_data,
@@ -243,39 +256,64 @@ def plot_feedback_distribution(
                 medianprops={"color": "black", "linewidth": 2},
                 whiskerprops={"linewidth": 1.2},
                 capprops={"linewidth": 1.2},
-                showfliers=False,
+                showfliers=True,
             )
 
             for patch in bp["boxes"]:
-                patch.set_facecolor("#90CAF9")
+                patch.set_facecolor(
+                    _COLOR_ADAPTIVE if is_adaptive_group else _COLOR_CONTROL
+                )
                 patch.set_alpha(0.4)
 
-            for i, t in enumerate(trials):
-                trial_scores = group_data[group_data["trial"] == t]["normalised_score"].dropna().values
-                if len(trial_scores) > 0:
-                    x_pos = i + 1
-                    jitter = np.random.uniform(-0.15, 0.15, size=len(trial_scores))
-                    ax.scatter(
-                        x_pos + jitter, trial_scores,
-                        s=18, alpha=0.55, color=_COLOR_ADAPTIVE if is_adaptive_group else _COLOR_CONTROL,
-                        edgecolors="none", zorder=3
-                    )
+            # for i, t in enumerate(trials):
+            #     trial_scores = (
+            #         group_data[group_data["trial"] == t]["normalised_score"]
+            #         .dropna()
+            #         .values
+            #     )
+            #     if len(trial_scores) > 0:
+            #         x_pos = i + 1
+            #         jitter = np.random.uniform(-0.15, 0.15, size=len(trial_scores))
+            #         ax.scatter(
+            #             x_pos + jitter,
+            #             trial_scores,
+            #             s=18,
+            #             alpha=0.55,
+            #             color=_COLOR_ADAPTIVE if is_adaptive_group else _COLOR_CONTROL,
+            #             edgecolors="none",
+            #             zorder=3,
+            #         )
 
             _draw_region_shading(ax)
-            _style_score_axis(ax)
+            if ax == ax_adaptive:
+                _style_score_axis(ax)
+            else:
+                ax.set_yticklabels([])
+                ax.set_ylabel("")
 
             ax.set_xticks(range(1, len(trials) + 1))
             ax.set_xticklabels([f"Trial {t}" for t in trials])
             ax.set_xlabel("Trial")
             ax.set_title(f"{group_name} Group", fontweight="bold")
 
-            n_group_subjects = len(all_fb[all_fb["adaptive"] == is_adaptive_group].groupby("subject_id"))
+            n_group_subjects = len(
+                all_fb[all_fb["adaptive"] == is_adaptive_group].groupby("subject_id")
+            )
             ax.text(
-                0.98, 0.97, f"n={n_group_subjects} subjects",
-                transform=ax.transAxes, ha="right", va="top", fontsize=8, color="gray"
+                0.98,
+                0.97,
+                f"n={n_group_subjects} subjects",
+                transform=ax.transAxes,
+                ha="right",
+                va="top",
+                fontsize=8,
+                color="gray",
             )
     else:
-        box_data = [all_fb[all_fb["trial"] == t]["normalised_score"].dropna().values for t in trials]
+        box_data = [
+            all_fb[all_fb["trial"] == t]["normalised_score"].dropna().values
+            for t in trials
+        ]
 
         bp = ax_main.boxplot(
             box_data,
@@ -292,29 +330,41 @@ def plot_feedback_distribution(
             patch.set_facecolor("#90CAF9")
             patch.set_alpha(0.4)
 
-        for i, t in enumerate(trials):
-            trial_fb = all_fb[all_fb["trial"] == t]
-            adaptive_mask = trial_fb["adaptive"]
+        # for i, t in enumerate(trials):
+        #     trial_fb = all_fb[all_fb["trial"] == t]
+        #     adaptive_mask = trial_fb["adaptive"]
 
-            x_pos = i + 1
+        #     x_pos = i + 1
 
-            adaptive_scores = trial_fb[adaptive_mask]["normalised_score"].dropna().values
-            if len(adaptive_scores) > 0:
-                jitter = np.random.uniform(-0.15, 0.15, size=len(adaptive_scores))
-                ax_main.scatter(
-                    x_pos + jitter, adaptive_scores,
-                    s=18, alpha=0.55, color=_COLOR_ADAPTIVE,
-                    edgecolors="none", zorder=3
-                )
+        #     adaptive_scores = (
+        #         trial_fb[adaptive_mask]["normalised_score"].dropna().values
+        #     )
+        #     if len(adaptive_scores) > 0:
+        #         jitter = np.random.uniform(-0.15, 0.15, size=len(adaptive_scores))
+        #         ax_main.scatter(
+        #             x_pos + jitter,
+        #             adaptive_scores,
+        #             s=18,
+        #             alpha=0.55,
+        #             color=_COLOR_ADAPTIVE,
+        #             edgecolors="none",
+        #             zorder=3,
+        #         )
 
-            control_scores = trial_fb[~adaptive_mask]["normalised_score"].dropna().values
-            if len(control_scores) > 0:
-                jitter = np.random.uniform(-0.15, 0.15, size=len(control_scores))
-                ax_main.scatter(
-                    x_pos + jitter, control_scores,
-                    s=18, alpha=0.55, color=_COLOR_CONTROL,
-                    edgecolors="none", zorder=3
-                )
+        #     control_scores = (
+        #         trial_fb[~adaptive_mask]["normalised_score"].dropna().values
+        #     )
+        #     if len(control_scores) > 0:
+        #         jitter = np.random.uniform(-0.15, 0.15, size=len(control_scores))
+        #         ax_main.scatter(
+        #             x_pos + jitter,
+        #             control_scores,
+        #             s=18,
+        #             alpha=0.55,
+        #             color=_COLOR_CONTROL,
+        #             edgecolors="none",
+        #             zorder=3,
+        #         )
 
         _draw_region_shading(ax_main)
         _style_score_axis(ax_main)
@@ -326,8 +376,14 @@ def plot_feedback_distribution(
 
         n_subjects_with_fb = sum(1 for r in records if r.feedback is not None)
         ax_main.text(
-            0.98, 0.97, f"n={n_subjects_with_fb} subjects",
-            transform=ax_main.transAxes, ha="right", va="top", fontsize=8, color="gray"
+            0.98,
+            0.97,
+            f"n={n_subjects_with_fb} subjects",
+            transform=ax_main.transAxes,
+            ha="right",
+            va="top",
+            fontsize=8,
+            color="gray",
         )
 
     if ax_group is not None:
@@ -353,7 +409,10 @@ def plot_feedback_distribution(
                 showextrema=True,
             )
 
-            for pc, color in zip(parts["bodies"], [c for c, d in zip(group_colors, group_data) if len(d) > 0]):
+            for pc, color in zip(
+                parts["bodies"],
+                [c for c, d in zip(group_colors, group_data) if len(d) > 0],
+            ):
                 pc.set_facecolor(color)
                 pc.set_alpha(0.4)
 
@@ -362,8 +421,13 @@ def plot_feedback_distribution(
                 continue
             jitter = np.random.uniform(-0.08, 0.08, size=len(scores))
             ax_group.scatter(
-                pos + jitter, scores,
-                s=18, alpha=0.6, color=color, edgecolors="none", zorder=3
+                pos + jitter,
+                scores,
+                s=18,
+                alpha=0.6,
+                color=color,
+                edgecolors="none",
+                zorder=3,
             )
 
         _draw_region_shading(ax_group)
@@ -379,8 +443,7 @@ def plot_feedback_distribution(
         ax_group.set_title("Score Distribution by Group", fontweight="bold")
 
     fig.suptitle(
-        f"Feedback Distribution — {experiment_name}",
-        fontsize=13, fontweight="bold"
+        f"Feedback Distribution — {experiment_name}", fontsize=13, fontweight="bold"
     )
 
     return fig
@@ -395,9 +458,7 @@ def _save_or_show(figs: list[tuple[plt.Figure, Path]], show: bool) -> None:
         plt.show()
 
 
-def run_feedback(
-    data_dir: Path, output_dir: Path, experiment: str, show: bool
-) -> None:
+def run_feedback(data_dir: Path, output_dir: Path, experiment: str, show: bool) -> None:
     """Main pipeline: load data, generate figures, save/show."""
     experiment_dir = data_dir / experiment
     print(f"\nLoading feedback data from: {experiment_dir}")
@@ -408,10 +469,10 @@ def run_feedback(
     output_subdir.mkdir(parents=True, exist_ok=True)
 
     figs: list[tuple[plt.Figure, Path]] = [
-        (plot_subject_durations(records), output_subdir / "subject_durations.png"),
+        (plot_subject_durations(records), output_subdir / "subject_durations.svg"),
         (
             plot_feedback_distribution(records, experiment),
-            output_subdir / "feedback_distribution.png",
+            output_subdir / "feedback_distribution.svg",
         ),
     ]
 
