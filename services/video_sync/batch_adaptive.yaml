@@ -1,0 +1,61 @@
+# video_sync — batch configuration for adaptive subjects.
+#
+# Fill in `sync_offset` and `sync_offset_end` per subject after inspecting
+# each recording with:
+#   uv run video_sync --subject <CODE> --print-sync-info
+#
+# - sync_offset:     video time (s) where trial 1's race timer hits 00:00.
+# - sync_offset_end: video time (s) where the last drone passes the LAST
+#                    gate of the LAST trial. Leave as `null` to use 1-point
+#                    sync (less accurate over long recordings).
+# - skip: set to true to temporarily exclude a subject from the batch.
+
+data_dir: services/workload_inference/data/experiments/experiment_racing_gates
+output_dir: services/video_sync/output
+
+defaults:
+  anchor: trigger-plane          # trigger-plane | first-gate | t0
+  trigger_distance_m: 2.0
+  overlays:                      # comment out a line to disable an overlay
+    - workload
+    - drones
+    - adaptation
+    - gates
+    - timeline
+  padding_s: 3.0                 # seconds before/after each crash
+  merge_window_s: 0.5            # group crashes within this window
+  do_trials: true                # render per-trial clips
+  do_montage: true               # render crash montage
+  trim: true                     # trim per-trial clip to data window
+
+subjects:
+  - code: CXOE
+    sync_offset: null
+    sync_offset_end: null
+  - code: EBET
+    sync_offset: null
+    sync_offset_end: null
+  - code: ENJS
+    sync_offset: null
+    sync_offset_end: null
+  - code: ENQK
+    sync_offset: null
+    sync_offset_end: null
+  - code: JPNL
+    sync_offset: null
+    sync_offset_end: null
+  - code: JUEC
+    sync_offset: null
+    sync_offset_end: null
+  - code: JXKI
+    sync_offset: null
+    sync_offset_end: null
+  - code: MZSB
+    sync_offset: null
+    sync_offset_end: null
+  - code: VHFP
+    sync_offset: null
+    sync_offset_end: null
+  - code: VXKX
+    sync_offset: null
+    sync_offset_end: null
