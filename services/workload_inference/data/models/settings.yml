@@ -1,0 +1,22 @@
+model_type: tabnet
+feature_set: ipa_wavelets
+sample_rate: 60.0
+window_size_samples: 300
+wavelet_level: 4
+feature_columns:
+- pupil_lhipa
+- pupil_ripa2
+- pupil_wv_coeff_1
+- pupil_wv_coeff_2
+- pupil_wv_coeff_3
+- pupil_wv_coeff_4
+- pupil_wv_coeff_5
+raw_feature_columns: []
+normalization_warmup_windows: -1
+
+filter:
+  type: RawFilter
+  min_fraction: 0.0
+  min_consecutive: 3
+  warmup_windows: 5
+
