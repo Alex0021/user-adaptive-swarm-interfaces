@@ -1,0 +1,16 @@
+name: experiment_racing_test
+participant:
+  uid: FDHU
+tasks:
+  - name: Task1
+  - name: Task2
+  - name: Task3
+trials:
+  - name: Trial1
+  - name: Trial2
+  - name: Trial3
+  - name: Trial4
+  - name: Trial5
+data_recording:
+  max_file_size_mb: 100
+workload_model_path: "data/models/tabnet_model_best.zip"
